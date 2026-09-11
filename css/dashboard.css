@@ -85,18 +85,6 @@ a.sw:focus-visible { box-shadow: var(--focus); }
 .deadline { font-size: 14px; color: var(--ink-2); }
 .deadline.soon { color: var(--warn); font-weight: 500; }
 .deadline.past { color: var(--bad); font-weight: 500; }
-.steps { list-style: none; display: flex; gap: 4px; padding: 0; margin: 0 0 18px; counter-reset: step; }
-.steps li { flex: 1 1 0; min-width: 0; }
-.steps button { width: 100%; border: 0; background: none; text-align: left; padding: 0; cursor: pointer; color: var(--ink-3); font-size: 13px; font-weight: 500; }
-.steps button::before { content: ''; display: block; height: 5px; border-radius: 2px; background: var(--rule); margin-bottom: 6px; }
-.steps button .n::after { content: '. '; }
-.steps .done button::before { background: var(--ink-2); }
-.steps .current button { color: var(--ink); }
-.steps .current button::before { background: var(--brand); }
-.steps .has-error button { color: var(--bad); }
-.steps .has-error button::before { background: var(--bad); }
-.steps .label { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.step-mobile { display: none; }
 .step-panel h2 { font-size: 22px; margin-bottom: 4px; }
 .step-panel > p.muted { margin-bottom: 16px; }
 .q-list { display: flex; flex-direction: column; gap: 18px; }
@@ -171,3 +159,22 @@ a.sw:focus-visible { box-shadow: var(--focus); }
   .hbar { grid-template-columns: 1fr 56px; gap: 4px 10px; }
   .hbar-track { grid-column: 1 / -1; grid-row: 2; }
 }
+
+/* ---------- One-page report form ---------- */
+/* The report used to be a step-by-step wizard. It is now a single page with numbered
+   sections, so nothing is hidden behind a Next button. */
+.form-section { padding-bottom: 26px; margin-bottom: 26px; border-bottom: 1px solid var(--rule); }
+.form-section.last { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
+.form-section h2 { display: flex; align-items: center; gap: 10px; font-size: 21px; margin-bottom: 4px; }
+.form-section h2:focus { outline: none; }
+.form-section > p.muted { margin-bottom: 16px; }
+.sec-n {
+  flex: none; width: 27px; height: 27px; border-radius: 50%;
+  background: var(--brand); color: #fff; font-size: 14px; font-weight: 600;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.form-section .section-title {
+  margin: 20px 0 10px; font-size: 12.5px; font-weight: 600;
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3);
+}
+.form-section .section-title:first-child { margin-top: 0; }

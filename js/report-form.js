@@ -209,10 +209,6 @@ function questionInStep(q, step) {
 }
 
 function refreshErrorMarks() {
-  const rail = $('[data-steps]');
-  if (rail) setHTML(rail, stepRail());
-  const mob = $('[data-step-mobile]');
-  if (mob) setHTML(mob, stepMobile());
   S.data.questions.forEach((q) => {
     const wrap = $('[data-qwrap="' + q.questionId + '"]');
     if (!wrap) return;
@@ -276,12 +272,12 @@ async function submit(btn) {
 }
 
 function goToFirstError() {
-  const idx = S.steps.findIndex((st) => stepHasError(st));
-  S.step = idx >= 0 ? idx : S.step;
   renderStep();
   setTimeout(() => {
     const first = $('.has-error input, .has-error textarea, .has-error select, .task.has-error input');
-    if (first) first.focus();
+    if (!first) return;
+    first.focus({ preventScroll: true });
+    first.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }, 30);
 }
 
@@ -297,16 +293,6 @@ function deadlineText() {
   const mins = Math.round((dl - now) / 60000);
   if (mins <= 60) return { cls: 'soon', text: 'Due by ' + fmtHm(d.time) + ', in ' + mins + ' min' };
   return { cls: '', text: 'Due by ' + fmtHm(d.time) };
-}
-
-function stepRail() {
-  return html`${S.steps.map((st, i) => html`<li class="${i < S.step ? 'done' : ''} ${i === S.step ? 'current' : ''} ${stepHasError(st) ? 'has-error' : ''}">
-    <button type="button" data-act="go" data-step="${i}" ${attr(i === S.step, 'aria-current', 'step')}><span class="label"><span class="n">${i + 1}</span>${st.id === 'kpi' && S.data.department ? titleCase(S.data.department.name) + ' numbers' : st.title}</span></button></li>`)}`;
-}
-function stepMobile() {
-  const st = S.steps[S.step];
-  return html`<div class="row between small"><strong>Step ${S.step + 1} of ${S.steps.length}: ${st.id === 'kpi' && S.data.department ? titleCase(S.data.department.name) + ' numbers' : st.title}</strong></div>
-    <div class="segbar" aria-hidden="true">${S.steps.map((s, i) => html`<span class="${stepHasError(s) ? 'err' : i < S.step ? 'done' : i === S.step ? 'current' : ''}"></span>`)}</div>`;
 }
 
 function renderShell() {
@@ -330,13 +316,10 @@ function renderShell() {
     ${d.report.status === 'REOPENED' ? html`<div class="banner warn">${icon('alert')}<span class="banner-body">The admin reopened this report${d.report.reopenReason ? ': “' + d.report.reopenReason + '”' : ''}. Make the changes and submit again.</span></div>` : ''}
     ${S.restoreOffer ? html`<div class="banner warn" data-restore>${icon('cloudOff')}<span class="banner-body">This device has changes from ${relTime(S.restoreOffer.at)} that were not saved to the server.
       <span class="row" style="margin-top:8px"><button class="btn sm primary" type="button" data-act="restore">Restore my changes</button><button class="btn sm" type="button" data-act="discard-restore">Discard them</button></span></span></div>` : ''}
-    <ol class="steps" data-steps aria-label="Report steps">${stepRail()}</ol>
-    <div class="step-mobile" data-step-mobile>${stepMobile()}</div>
-    <section class="step-panel" data-step-panel aria-live="polite"></section>
+    <div class="step-panel" data-step-panel></div>
     <div class="sticky-bar">
       <span class="save-state" data-save-state></span>
-      <button class="btn" type="button" data-act="back">${icon('left')}Back</button>
-      <button class="btn primary" type="button" data-act="next">Next${icon('right')}</button>
+      <button class="btn primary" type="button" data-act="submit">${icon('check')}Submit report</button>
     </div>
   </div>`);
   $$('[data-deadline] svg', c).forEach((s) => { s.style.width = '15px'; s.style.height = '15px'; s.style.verticalAlign = '-2px'; });
@@ -353,37 +336,51 @@ function renderShell() {
   }, 30000);
 }
 
+function sectionTitle(st) {
+  return st.id === 'kpi' && S.data.department ? titleCase(S.data.department.name) + ' numbers' : st.title;
+}
+
+function sectionBody(st) {
+  // Leftover work belongs with today's tasks, not on a page of its own.
+  if (st.id === 'tasks') {
+    return html`${S.carry.length ? html`<h3 class="section-title">Still open from earlier days</h3>${renderCarry()}<h3 class="section-title">Today's tasks</h3>` : ''}${renderTaskList(S)}`;
+  }
+  if (st.id === 'review') return renderReview();
+  const qs = S.data.questions.filter((q) => questionInStep(q, st));
+  let lastSection = '';
+  return html`<div class="q-list">${qs.map((q) => {
+    const head = st.sections.length > 1 && q.section !== lastSection ? html`<h3 class="section-title">${SECTION_LABELS[q.section] || titleCase(q.section)}</h3>` : '';
+    lastSection = q.section;
+    const visible = isVisible(q, S.answers);
+    return html`${head}<div class="${visible ? '' : 'hidden'}" data-vis="${q.questionId}">${renderQuestion(q, S.answers[q.questionId], S.fieldErrors[q.questionId], { disabled: S.submitted })}</div>`;
+  })}</div>`;
+}
+
+/** The whole report on one page: numbered sections, then the review and the submit button. */
 function renderStep() {
   const panel = $('[data-step-panel]');
   if (!panel) return;
-  const st = S.steps[S.step];
-  const title = st.id === 'kpi' && S.data.department ? titleCase(S.data.department.name) + ' numbers' : st.title;
-  let body;
-  if (st.id === 'carry') body = renderCarry();
-  else if (st.id === 'tasks') body = renderTaskList(S);
-  else if (st.id === 'review') body = renderReview();
-  else {
-    const qs = S.data.questions.filter((q) => questionInStep(q, st));
-    let lastSection = '';
-    body = html`<div class="q-list">${qs.map((q) => {
-      const head = st.sections.length > 1 && q.section !== lastSection && qs.filter((x) => x.section === q.section).length > 0 && st.id !== 'summary' ? html`<h3 class="section-title">${SECTION_LABELS[q.section] || titleCase(q.section)}</h3>` : '';
-      lastSection = q.section;
-      const visible = isVisible(q, S.answers);
-      return html`${head}<div class="${visible ? '' : 'hidden'}" data-vis="${q.questionId}">${renderQuestion(q, S.answers[q.questionId], S.fieldErrors[q.questionId], { disabled: S.submitted })}</div>`;
-    })}</div>`;
-  }
-  setHTML(panel, html`<h2 tabindex="-1" data-step-title>${title}</h2><p class="muted">${st.desc}</p>${body}`);
-  setHTML($('[data-steps]'), stepRail());
-  setHTML($('[data-step-mobile]'), stepMobile());
-  const back = $('[data-act="back"]'), next = $('[data-act="next"]');
-  back.classList.toggle('hidden', S.step === 0);
-  if (st.id === 'review') { next.dataset.act = 'submit'; setHTML(next, html`${icon('check')}Submit report`); }
-  else { next.dataset.act = 'next'; setHTML(next, html`Next${icon('right')}`); }
+  const numbered = S.steps.filter((st) => st.id !== 'carry' && st.id !== 'review');
+  const review = S.steps.filter((st) => st.id === 'review')[0];
+  setHTML(panel, html`${numbered.map((st, i) => html`<section class="form-section" data-section="${st.id}">
+      <h2 tabindex="-1" data-step-title="${st.id}"><span class="sec-n">${i + 1}</span>${sectionTitle(st)}</h2>
+      <p class="muted">${st.desc}</p>
+      ${sectionBody(st)}
+    </section>`)}
+    ${review ? html`<section class="form-section last" data-section="review">
+      <h2 tabindex="-1" data-step-title="review">${review.title}</h2>
+      <p class="muted">${review.desc}</p>
+      ${renderReview()}
+    </section>` : ''}`);
 }
 
-function focusStepTitle() {
-  const t = $('[data-step-title]');
-  if (t) { t.focus({ preventScroll: true }); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+/** Brings a section (or a single question) into view without jumping the page. */
+function scrollToSection(id) {
+  const el = $('[data-section="' + id + '"]');
+  if (!el) return;
+  el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  const h = el.querySelector('[data-step-title]');
+  if (h) h.focus({ preventScroll: true });
 }
 
 function renderCarry() {
@@ -521,16 +518,7 @@ function bindEvents(root) {
 
   on(root, 'click', '[data-act]', async (e, b) => {
     const act = b.dataset.act;
-    if (act === 'go') { S.step = Number(b.dataset.step); renderStep(); focusStepTitle(); saveNow(); }
-    else if (act === 'next') {
-      const st = S.steps[S.step];
-      const errs = clientErrors(false);
-      const stepErr = st.sections ? S.data.questions.filter((q) => questionInStep(q, st) && errs.fieldErrors[q.questionId]) : [];
-      if (stepErr.length) { stepErr.forEach((q) => { S.fieldErrors[q.questionId] = errs.fieldErrors[q.questionId]; }); refreshErrorMarks(); toast('Fix the highlighted answers to continue.', 'bad'); return; }
-      S.step = Math.min(S.steps.length - 1, S.step + 1); renderStep(); focusStepTitle(); saveNow();
-    }
-    else if (act === 'back') { S.step = Math.max(0, S.step - 1); renderStep(); focusStepTitle(); }
-    else if (act === 'submit') submit(b);
+    if (act === 'submit') submit(b);
     else if (act === 'retry-save') saveNow();
     else if (act === 'restore') {
       const bk = S.restoreOffer;
@@ -545,12 +533,14 @@ function bindEvents(root) {
     else if (act === 'discard-restore') { clearBackup(); S.restoreOffer = null; $('[data-restore]').remove(); }
     else if (act === 'jump-q') {
       const q = S.data.questions.find((x) => x.questionId === b.dataset.qId);
-      const idx = S.steps.findIndex((st) => st.sections && questionInStep(q, st));
       S.fieldErrors = clientErrors(true).fieldErrors;
-      S.step = idx; renderStep();
-      setTimeout(() => { const el = $('[data-q="' + q.questionId + '"]'); if (el) el.focus(); }, 30);
+      renderStep();
+      setTimeout(() => {
+        const el = $('[data-q="' + q.questionId + '"]');
+        if (el) { el.focus({ preventScroll: true }); el.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+      }, 30);
     }
-    else if (act === 'jump-tasks') { S.taskErrors = clientErrors(true).taskErrors; S.step = S.steps.findIndex((st) => st.id === 'tasks'); renderStep(); }
+    else if (act === 'jump-tasks') { S.taskErrors = clientErrors(true).taskErrors; renderStep(); setTimeout(() => scrollToSection('tasks'), 30); }
     else if (act === 'cf-continue-all') {
       S.carry.forEach((t) => S.tasks.push(continuedTask(t)));
       const n = S.carry.length;

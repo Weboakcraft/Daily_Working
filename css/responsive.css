@@ -63,13 +63,6 @@
   table.data.stack-sm td.primary-cell { font-weight: 600; font-size: 15px; }
 
   /* Report form */
-  .steps { display: none; }
-  .step-mobile { display: block; margin-bottom: 16px; }
-  .step-mobile .segbar { height: 6px; margin-top: 8px; gap: 3px; background: none; }
-  .step-mobile .segbar span { flex: 1; background: var(--rule); border-radius: 2px; }
-  .step-mobile .segbar span.done { background: var(--ink-2); }
-  .step-mobile .segbar span.current { background: var(--brand); }
-  .step-mobile .segbar span.err { background: var(--bad); }
   .task-head { grid-template-columns: 1fr auto; }
   .task-head .select { grid-column: 1 / 2; min-width: 0; width: 100%; }
   .task-head .input { grid-column: 1 / -1; border-color: var(--rule); }
