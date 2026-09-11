@@ -1,0 +1,103 @@
+# Unpacks any .zip file uploaded to this repository, commits the extracted files, and deletes the zip.
+#
+# How to use:
+#   1. Add this file to the repository as .github/workflows/unpack.yml
+#   2. Upload the project zip with "Add file > Upload files" and commit.
+#   3. Open the Actions tab and wait for "Unpack uploaded zip" to finish (about 30 seconds).
+#
+# Notes:
+#   - If the zip has a single top-level folder (for example oakcraft-daily-working-tracker/),
+#     its contents are placed at the repository root so index.html ends up at the top level.
+#   - A Web App URL already saved in js/config.js is kept; the placeholder from the zip does not overwrite it.
+#   - Existing files with the same name are replaced; other files in the repository are left alone.
+#   - Archives containing absolute paths or ".." are refused.
+
+name: Unpack uploaded zip
+
+on:
+  push:
+    paths:
+      - '**.zip'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: unpack-zip
+  cancel-in-progress: false
+
+jobs:
+  unpack:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Unpack zip files
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob dotglob
+
+          mapfile -t zips < <(git ls-files '*.zip')
+          if [ "${#zips[@]}" -eq 0 ]; then
+            echo "No zip files found in the repository. Nothing to do."
+            exit 0
+          fi
+
+          for zip in "${zips[@]}"; do
+            echo "::group::Unpacking $zip"
+
+            if unzip -Z1 "$zip" | grep -Eq '(^/|(^|/)\.\.(/|$))'; then
+              echo "::error::$zip contains unsafe paths (absolute or '..'). It was not unpacked."
+              echo "::endgroup::"
+              exit 1
+            fi
+
+            tmp="$(mktemp -d)"
+            unzip -q -o "$zip" -d "$tmp"
+            rm -rf "$tmp/__MACOSX"
+            find "$tmp" -name '.DS_Store' -delete
+
+            src="$tmp"
+            entries=("$tmp"/*)
+            if [ "${#entries[@]}" -eq 1 ] && [ -d "${entries[0]}" ]; then
+              src="${entries[0]}"
+              echo "Using the contents of the top-level folder: $(basename "$src")"
+            fi
+
+            keep_config=""
+            if [ -f js/config.js ] && ! grep -q "PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE" js/config.js; then
+              keep_config="$(mktemp)"
+              cp js/config.js "$keep_config"
+            fi
+
+            rm -rf "$src/.git"
+            cp -a "$src"/. ./
+
+            if [ -n "$keep_config" ]; then
+              cp "$keep_config" js/config.js
+              echo "Kept the existing Web App URL in js/config.js"
+            fi
+
+            rm -f "$zip"
+            rm -rf "$tmp"
+            echo "Unpacked $zip"
+            echo "::endgroup::"
+          done
+
+      - name: Commit the unpacked files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Nothing changed."
+            exit 0
+          fi
+          git commit -m "Unpack uploaded zip"
+          git push
+          echo "Done. The unpacked files are now in the repository."
