@@ -102,8 +102,12 @@ a.sw:focus-visible { box-shadow: var(--focus); }
 .task-meta { display: flex; gap: 10px; flex-wrap: wrap; padding: 0 12px 10px; font-size: 13px; color: var(--ink-3); }
 .carry-tag { color: #7A5520; font-weight: 500; }
 .task-error { color: var(--bad); font-size: 13px; padding: 0 12px 10px; font-weight: 500; }
-.add-task { display: flex; gap: 8px; }
-.add-task .input { flex: 1; }
+/* Task details | Task status | Add task — laid out as one row that stacks on small screens. */
+.add-task { display: grid; grid-template-columns: 1fr 190px auto; gap: 10px; align-items: end; }
+.add-task .field { margin: 0; }
+.add-task .field label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 5px; color: var(--ink-2); }
+.add-task .select { width: 100%; }
+.add-task .btn { height: 40px; }
 .cf-item { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--rule); }
 .cf-item:last-child { border-bottom: 0; }
 .cf-item .t { font-weight: 500; }

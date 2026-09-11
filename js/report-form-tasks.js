@@ -66,9 +66,11 @@ export function renderTaskList(S) {
     <div class="task-list" data-task-list>${S.tasks.map((t, i) => renderTaskCard(S, t, i))}</div>
     ${!S.tasks.length ? html`<p class="muted" style="margin:0 0 12px">No tasks yet. Add the first thing you worked on today.</p>` : ''}
     <div class="add-task" style="margin-top:12px">
-      <label class="sr-only" for="new-task">New task title</label>
-      <input class="input" id="new-task" data-new-task maxlength="200" placeholder="Add a task, then press Enter" autocomplete="off">
-      <button class="btn" type="button" data-tact="add">${icon('plus')}Add task</button>
+      <div class="field"><label for="new-task">Task details</label>
+        <input class="input" id="new-task" data-new-task maxlength="200" placeholder="What did you work on?" autocomplete="off"></div>
+      <div class="field"><label for="new-task-status">Task status</label>
+        <select class="select" id="new-task-status" data-new-task-status>${TASK_STATUS_OPTIONS.map((st) => html`<option value="${st}" ${attr(st === (S.newTaskStatus || 'COMPLETED'), 'selected')}>${titleCase(st)}</option>`)}</select></div>
+      <button class="btn primary" type="button" data-tact="add">${icon('plus')}Add task</button>
     </div>`;
 }
 
@@ -107,8 +109,11 @@ export function bindTaskEvents(root, S, h) {
 
   const add = () => {
     const input = $('[data-new-task]');
+    const statusEl = $('[data-new-task-status]');
     const title = input ? input.value.trim() : '';
-    const t = { clientKey: h.newKey(), taskId: '', sourceTaskId: '', title, description: '', category: '', priority: 'MEDIUM', status: 'COMPLETED', relatedType: '', relatedEntity: '', remarks: '', startTime: '', endTime: '', duration: '' };
+    // Most people add a run of tasks with the same status, so the choice sticks for the next one.
+    S.newTaskStatus = (statusEl && statusEl.value) || S.newTaskStatus || 'COMPLETED';
+    const t = { clientKey: h.newKey(), taskId: '', sourceTaskId: '', title, description: '', category: '', priority: 'MEDIUM', status: S.newTaskStatus, relatedType: '', relatedEntity: '', remarks: '', startTime: '', endTime: '', duration: '' };
     S.tasks.push(t);
     if (!title) S.openTasks[t.clientKey] = true;
     h.markChanged();

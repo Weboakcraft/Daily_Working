@@ -63,6 +63,8 @@
   table.data.stack-sm td.primary-cell { font-weight: 600; font-size: 15px; }
 
   /* Report form */
+  .add-task { grid-template-columns: 1fr; }
+  .add-task .btn { justify-content: center; }
   .task-head { grid-template-columns: 1fr auto; }
   .task-head .select { grid-column: 1 / 2; min-width: 0; width: 100%; }
   .task-head .input { grid-column: 1 / -1; border-color: var(--rule); }
