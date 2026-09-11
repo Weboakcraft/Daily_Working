@@ -1,13 +1,17 @@
 /**
- * Offline-first cache for the tracker's own files (pages, styles, scripts, fonts, logo).
+ * Offline cache for the tracker's own files.
  *
- * Nothing here touches the Apps Script backend — those requests go straight to the network as
- * always, so the data you see is never stale. This only stops the browser re-downloading the app
- * itself on every navigation, which was costing about a second each time on a phone connection.
+ * Nothing here touches the Apps Script backend — those requests always go to the network, so the
+ * data you see is never stale. This only stops the browser re-downloading the app itself.
  *
- * Strategy: answer from the cache at once, fetch a fresh copy in the background, use it next time.
+ * Two strategies, on purpose:
+ *  - Code (pages, scripts, styles): network first, with a short timeout, falling back to the cache.
+ *    A cached copy would otherwise keep serving yesterday's app for a load or two after an update.
+ *  - Assets that never change in place (fonts, images): straight from the cache, refreshed quietly.
  */
-const CACHE = 'oakcraft-tracker-v1';
+const CACHE = 'oakcraft-tracker-v2';
+const NETWORK_TIMEOUT_MS = 2500;
+const CODE = /\.(?:html|js|css)$|\/$/i;
 
 self.addEventListener('install', () => self.skipWaiting());
 
@@ -18,6 +22,11 @@ self.addEventListener('activate', (event) => {
       .then(() => self.clients.claim())
   );
 });
+
+function save(cache, req, res) {
+  if (res && res.status === 200 && res.type === 'basic') cache.put(req, res.clone());
+  return res;
+}
 
 self.addEventListener('fetch', (event) => {
   const req = event.request;
@@ -30,18 +39,20 @@ self.addEventListener('fetch', (event) => {
   event.respondWith((async () => {
     const cache = await caches.open(CACHE);
     const cached = await cache.match(req);
-    const network = fetch(req)
-      .then((res) => {
-        if (res && res.status === 200 && res.type === 'basic') cache.put(req, res.clone());
-        return res;
-      })
-      .catch(() => null);
+    const fromNetwork = fetch(req).then((res) => save(cache, req, res)).catch(() => null);
 
-    if (cached) {
-      event.waitUntil(network);
-      return cached;
+    if (CODE.test(url.pathname)) {
+      // Give the network a moment; if it is slow or offline, show the cached copy.
+      const timed = new Promise((resolve) => setTimeout(() => resolve(null), NETWORK_TIMEOUT_MS));
+      const fresh = await Promise.race([fromNetwork, timed]);
+      if (fresh) return fresh;
+      if (cached) { event.waitUntil(fromNetwork); return cached; }
+      const late = await fromNetwork;
+      return late || new Response('You appear to be offline.', { status: 503, headers: { 'Content-Type': 'text/plain' } });
     }
-    const fresh = await network;
+
+    if (cached) { event.waitUntil(fromNetwork); return cached; }
+    const fresh = await fromNetwork;
     return fresh || new Response('You appear to be offline.', { status: 503, headers: { 'Content-Type': 'text/plain' } });
   })());
 });
