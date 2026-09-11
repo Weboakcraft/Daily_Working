@@ -195,7 +195,7 @@ export function emptyState(title, text, action) {
 
 export function renderError(container, err, retry) {
   setHTML(container, html`<div class="panel"><div class="error-state" role="alert">
-    <h3>${err && err.isNetwork ? 'Could not reach the server' : 'This could not be loaded'}</h3>
+    <h3>${err && err.isNetwork ? "Can't reach the server right now" : "That didn't load"}</h3>
     <p>${errorMessage(err)}</p>
     ${err && err.details ? html`<p><code>${err.details}</code></p>` : ''}
     ${retry ? html`<button class="btn" type="button" data-retry>${icon('refresh')}Try again</button>` : ''}
@@ -389,7 +389,7 @@ export function renderTable(container, cfg) {
         return state.dir === 'asc' ? cmp : -cmp;
       });
     }
-    if (!rows.length) { setHTML(container, cfg.empty || emptyState('Nothing to show', 'Try changing the filters.')); return; }
+    if (!rows.length) { setHTML(container, cfg.empty || emptyState('Nothing here yet', 'Try a different date range or filter.')); return; }
     setHTML(container, html`<div class="table-wrap"><table class="data ${cfg.stack === false ? '' : 'stack-sm'}">
       ${cfg.caption ? html`<caption class="sr-only">${cfg.caption}</caption>` : ''}
       <thead><tr>${cfg.columns.map((c) => html`<th scope="col" class="${c.align === 'right' ? 'r' : ''}" ${attr(state.key === c.key, 'aria-sort', state.dir === 'asc' ? 'ascending' : 'descending')}>${c.sortable
@@ -663,7 +663,7 @@ export async function boot(opts) {
     content = fresh;
     ctx.content = fresh;
     if (r.roles && r.roles.indexOf(user.role) < 0) {
-      setHTML(content, html`${ctx.head('Not available')}${emptyState('You do not have access to this page', 'Ask the admin if you need access.', html`<a class="btn" href="${homeFor(user)}">Go to home</a>`)}`);
+      setHTML(content, html`${ctx.head('Not available')}${emptyState("This page isn't part of your access", 'If you need it, just ask your admin.', html`<a class="btn" href="${homeFor(user)}">Back to home</a>`)}`);
       return;
     }
     window.scrollTo(0, 0);

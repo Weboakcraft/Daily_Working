@@ -34,15 +34,15 @@ function bindToggles(root) {
 function renderLogin() {
   document.title = 'Sign in | Oakcraft Daily Working Tracker';
   const reason = params.get('reason');
-  setHTML(card, html`<h2>Sign in</h2>
-    <p class="muted">Use the username and password from your admin.</p>
-    ${reason === 'expired' ? html`<div class="banner info" role="status"><span class="banner-body">Your session ended. Sign in again to continue.</span></div>` : ''}
+  setHTML(card, html`<h2>Welcome back</h2>
+    <p class="muted">Sign in with the username and password your admin gave you.</p>
+    ${reason === 'expired' ? html`<div class="banner info" role="status"><span class="banner-body">You were away for a while, so we signed you out. Sign in again to pick up where you left off.</span></div>` : ''}
     <div class="banner bad hidden" role="alert" id="login-error"><span class="banner-body"></span></div>
     <form novalidate id="login-form">
       ${field({ name: 'username', label: 'Username', autocomplete: 'username', required: true, attrs: 'autocapitalize="none" spellcheck="false"' })}
       ${passwordField('password', 'Password', 'current-password')}
       <button class="btn primary" type="submit">Sign in</button>
-      <p class="small muted" style="margin:0">Forgot your password? Ask the admin to reset it.</p>
+      <p class="small muted" style="margin:0">Forgotten your password? Ask your admin — they can reset it in a minute.</p>
     </form>`);
   bindToggles(card);
   const form = $('#login-form');

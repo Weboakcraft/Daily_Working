@@ -34,8 +34,8 @@ function settingDefs() {
       type: 'events', pub: false, desc: 'Which events send notifications'
     },
     REMINDER_MINUTES_BEFORE: { def: 30, type: 'int', min: 5, max: 240, pub: false, desc: 'Reminder lead time before the deadline' },
-    BRAND_PRIMARY: { def: '#6B4226', type: 'color', pub: true, desc: 'Primary brand colour' },
-    BRAND_ACCENT: { def: '#B8863B', type: 'color', pub: true, desc: 'Accent brand colour' }
+    BRAND_PRIMARY: { def: '#1B4F8A', type: 'color', pub: true, desc: 'Primary brand colour' },
+    BRAND_ACCENT: { def: '#0E7C86', type: 'color', pub: true, desc: 'Accent brand colour' }
   };
 }
 
@@ -131,7 +131,7 @@ function validateSetting(key, def, v) {
       return out;
     }
     case 'color':
-      if (!/^#[0-9A-Fa-f]{6}$/.test(String(v))) fail('Use a hex colour like #6B4226.');
+      if (!/^#[0-9A-Fa-f]{6}$/.test(String(v))) fail('Use a hex colour like #1B4F8A.');
       return String(v).toUpperCase();
     default: return cleanText(v, 500);
   }

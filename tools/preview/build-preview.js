@@ -49,7 +49,7 @@ const html = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Oakcraft Daily Working Tracker (offline preview)</title>
 <meta name="robots" content="noindex, nofollow">
-<meta name="theme-color" content="#EEF0EF">
+<meta name="theme-color" content="#F3F5F9">
 <link rel="icon" href="${logo}" type="image/svg+xml">
 <!-- Offline preview of the Oakcraft Daily Working Tracker. Demo data only; nothing is sent to any server.
      IBM Plex fonts: SIL Open Font License 1.1. Built ${new Date().toISOString().slice(0, 10)}. -->

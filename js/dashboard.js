@@ -8,6 +8,25 @@ import {
 import { columnChart, lineChart, hbars, segmented, legendHtml, sparkline, enableTips } from './charts.js';
 import { openExportDialog } from './export.js';
 
+/**
+ * Starts a request before the screen is ready for it and hands the answer over when it is asked for.
+ * `take` returns the in-flight promise only when the filters still match what was requested, so a
+ * person who changes a dropdown while the page is loading gets fresh figures, not the primed ones.
+ */
+function primeRequest(action, payload) {
+  const key = JSON.stringify(payload);
+  let pending = api(action, payload);
+  pending.catch(() => { /* re-thrown to whoever takes it */ });
+  return {
+    take(current) {
+      if (!pending || JSON.stringify(current) !== key) return null;
+      const p = pending;
+      pending = null;
+      return p;
+    }
+  };
+}
+
 async function filterOptions(ctx) {
   const [depts, dir] = await Promise.all([ctx.departments(), ctx.directory()]);
   return {
@@ -51,6 +70,16 @@ export async function renderOverview(ctx) {
   const range = readRange(q, ctx.today, 'today');
   setHTML(c, html`${ctx.head('Overview', '', html`<button class="btn" type="button" data-export>${icon('download')}<span class="btn-text">Export</span></button>`)}
     <form class="filters" data-filters></form><div data-body>${skeleton(10)}</div>`);
+  // The figures do not depend on the filter dropdowns, so ask for both at once. Each round-trip to
+  // Apps Script costs well over a second; running them one after the other doubled the wait for nothing.
+  const firstFilters = {
+    from: range.from, to: range.to,
+    departmentId: q.get('departmentId') || undefined,
+    employeeId: q.get('employeeId') || undefined,
+    managerId: q.get('managerId') || undefined
+  };
+  const primed = primeRequest('getDashboardData', firstFilters);
+
   const opts = await filterOptions(ctx).catch(() => ({ depts: [], people: [], managers: [] }));
   if (!ctx.isCurrent()) return;
   const form = $('[data-filters]', c);
@@ -68,7 +97,7 @@ export async function renderOverview(ctx) {
     lastFilters = p;
     body.setAttribute('aria-busy', 'true');
     try {
-      const d = await api('getDashboardData', p);
+      const d = await (primed.take(p) || api('getDashboardData', p));
       if (!ctx.isCurrent()) return;
       body.removeAttribute('aria-busy');
       drawOverview(ctx, body, d);

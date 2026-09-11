@@ -13,7 +13,17 @@ import { html, setHTML, icon, raw, openModal, toast, fmtDate, fmtDateTime, fmtMi
 import { SECTION_LABELS } from './question-controls.js';
 
 const SECTION_ORDER = ['WORK_SUMMARY', 'COMPLETED', 'PENDING', 'CARRY_FORWARD', 'KPI', 'BLOCKERS', 'FOLLOWUPS', 'MEETINGS', 'TOMORROW_PLAN', 'NOTES'];
-const TASK_GROUPS = [['COMPLETED', 'Completed'], ['IN PROGRESS', 'In progress'], ['PENDING', 'Pending'], ['BLOCKED', 'Blocked'], ['CARRIED FORWARD', 'Carried forward']];
+const TASK_GROUPS = [
+  ['COMPLETED', 'Completed', '\u2705'],
+  ['IN PROGRESS', 'In progress', '\uD83D\uDD04'],
+  ['PENDING', 'Pending', '\u23F3'],
+  ['BLOCKED', 'Blocked', '\uD83D\uDEA7'],
+  ['CARRIED FORWARD', 'Carried forward', '\u27A1\uFE0F']
+];
+const SECTION_MARKS = {
+  WORK_SUMMARY: '\uD83D\uDCDD', KPI: '\uD83D\uDCCA', BLOCKERS: '\uD83D\uDEA7',
+  FOLLOWUPS: '\uD83D\uDCDE', MEETINGS: '\uD83E\uDD1D', TOMORROW_PLAN: '\uD83D\uDCCC', NOTES: '\uD83D\uDCAC'
+};
 const WA_ICON = raw('<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4.5 19.5l1.2-3.6A8 8 0 1 1 8.4 18.6z"/><path d="M9 10.5h6M9 13.5h4"/></svg>');
 
 /** Only the employee who owns a submitted (or late) report can share it. */
@@ -35,7 +45,8 @@ function formatAnswer(r) {
 }
 
 function questionLine(r) {
-  const text = String(r.text || '').trim();
+  // The answer already carries the rupee sign, so a trailing "(₹)" in the question would repeat it.
+  const text = String(r.text || '').trim().replace(/\s*\(₹\)\s*$/, '');
   return '• ' + text + (/[?:]$/.test(text) ? ' ' : ': ') + formatAnswer(r);
 }
 
@@ -45,30 +56,47 @@ function questionLine(r) {
  */
 export function buildWhatsAppMessage(d, companyName) {
   const r = d.report;
-  const company = companyName || 'Oakcraft';
+  const company = (companyName || 'Oakcraft').toUpperCase();
+  const RULE = '\u2501'.repeat(18);
   const lines = [];
-  lines.push('*' + company + ': daily work report*');
-  lines.push('*' + d.employee.name + '*' + (d.employee.designation ? ', ' + d.employee.designation : '') + ', ' + titleCase(d.department.name));
-  lines.push('Date: ' + fmtDate(r.date));
-  lines.push('Submitted: ' + fmtDateTime(r.submittedAt) + (r.late ? ' (after the deadline)' : ' (on time)'));
-  lines.push('Report ID: ' + r.reportId);
+
+  /* Header: who, which team, which day — readable in the chat list preview. */
+  lines.push('*' + company + ' \u00B7 DAILY WORK REPORT*');
+  lines.push(RULE);
+  lines.push('\uD83D\uDC64 *' + d.employee.name + '*' + (d.employee.designation ? '  \u00B7  ' + d.employee.designation : ''));
+  lines.push('\uD83C\uDFE2 ' + titleCase(d.department.name));
+  lines.push('\uD83D\uDCC5 ' + fmtDate(r.date));
+  lines.push('\uD83D\uDD52 Sent ' + fmtDateTime(r.submittedAt) + (r.late ? '  \u00B7  after the deadline' : '  \u00B7  on time'));
+
+  /* One glanceable summary so a manager can read the chat preview and move on. */
+  const done = Number(r.taskCompleted) || 0;
+  const total = Number(r.taskTotal) || 0;
+  lines.push('');
+  lines.push('*THE DAY IN SHORT*');
+  if (total) {
+    const pct = Math.round((done / total) * 100);
+    const filled = Math.round(pct / 10);
+    lines.push(done + ' of ' + total + ' tasks done  \u00B7  ' + pct + '%');
+    lines.push('\u25B0'.repeat(filled) + '\u25B1'.repeat(10 - filled));
+  } else {
+    lines.push('No tasks were recorded today.');
+  }
+  if (r.workMinutes) lines.push('\u23F1 ' + fmtMinutes(r.workMinutes) + ' recorded');
 
   const tasks = (d.tasks || []).filter((t) => t.status !== 'CANCELLED');
-  lines.push('');
-  lines.push('*Tasks: ' + r.taskCompleted + ' of ' + r.taskTotal + ' completed' + (r.workMinutes ? ', ' + fmtMinutes(r.workMinutes) + ' recorded' : '') + '*');
-  if (!tasks.length) lines.push('No tasks recorded.');
-  TASK_GROUPS.forEach(([status, label]) => {
+  TASK_GROUPS.forEach(([status, label, mark]) => {
     const group = tasks.filter((t) => t.status === status);
     if (!group.length) return;
-    lines.push('_' + label + '_');
+    lines.push('');
+    lines.push('*' + mark + ' ' + label.toUpperCase() + ' (' + group.length + ')*');
     group.forEach((t) => {
       const bits = [];
       if (t.priority === 'HIGH' || t.priority === 'URGENT') bits.push(titleCase(t.priority) + ' priority');
       if (t.relatedEntity) bits.push((t.relatedType ? titleCase(t.relatedType) + ': ' : '') + t.relatedEntity);
       if (t.duration) bits.push(fmtMinutes(t.duration));
-      lines.push('• ' + (t.title || 'Untitled task') + (bits.length ? ' (' + bits.join(', ') + ')' : ''));
+      lines.push('\u2022 ' + (t.title || 'Untitled task') + (bits.length ? '  _(' + bits.join(', ') + ')_' : ''));
       if (t.description) lines.push('   ' + t.description.replace(/\s*\n\s*/g, ' '));
-      if (t.remarks) lines.push('   ' + (status === 'BLOCKED' ? 'Blocked by: ' : 'Remarks: ') + t.remarks.replace(/\s*\n\s*/g, ' '));
+      if (t.remarks) lines.push('   _' + (status === 'BLOCKED' ? 'Blocked by: ' : 'Note: ') + t.remarks.replace(/\s*\n\s*/g, ' ') + '_');
     });
   });
 
@@ -82,7 +110,7 @@ export function buildWhatsAppMessage(d, companyName) {
     if (!items.length) return;
     const label = section === 'KPI' ? titleCase(d.department.name) + ' numbers' : (SECTION_LABELS[section] || titleCase(section));
     lines.push('');
-    lines.push('*' + label + '*');
+    lines.push('*' + (SECTION_MARKS[section] ? SECTION_MARKS[section] + ' ' : '') + label.toUpperCase() + '*');
     items.forEach((x) => {
       if (x.type === 'LONG_TEXT') {
         if (items.length > 1) lines.push('_' + String(x.text).trim() + '_');
@@ -94,7 +122,8 @@ export function buildWhatsAppMessage(d, companyName) {
   });
 
   lines.push('');
-  lines.push('Sent from the ' + company + ' Daily Working Tracker');
+  lines.push(RULE);
+  lines.push('_Ref ' + r.reportId + '  \u00B7  sent by ' + d.employee.name.split(' ')[0] + ' from the ' + (companyName || 'Oakcraft') + ' Daily Working Tracker_');
   return lines.join('\n').replace(/\n{3,}/g, '\n\n');
 }
 

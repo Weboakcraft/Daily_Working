@@ -24,6 +24,14 @@ export function scorePanel(score, opts) {
 
 // ============================ Home ============================
 
+/** A small hello, so the first thing on screen is not a deadline. */
+function greeting() {
+  const h = new Date().getHours();
+  if (h < 12) return 'Good morning';
+  if (h < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+
 export async function renderMyDashboard(ctx) {
   const c = ctx.content;
   setHTML(c, html`${ctx.head('Home')}${skeleton(6)}`);
@@ -42,7 +50,7 @@ export async function renderMyDashboard(ctx) {
   const firstName = ctx.user.name.split(' ')[0];
 
   setHTML(c, html`
-    <div class="hero"><p class="muted" style="margin:0 0 4px">${fmtDate(t.date)}, ${firstName}</p>
+    <div class="hero"><p class="muted" style="margin:0 0 4px">${greeting()}, ${firstName} \u00B7 ${fmtDate(t.date)}</p>
       <div class="hero-line">${line}</div>
       ${t.tasks.total ? html`<p class="hero-sub">${t.tasks.total} ${t.tasks.total === 1 ? 'task' : 'tasks'} recorded today, ${t.tasks.completed} completed${t.tasks.blocked ? ', ' + t.tasks.blocked + ' blocked' : ''}.</p>` : ''}
       <div class="row" style="margin-top:14px">${cta}</div></div>

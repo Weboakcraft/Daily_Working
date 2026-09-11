@@ -98,14 +98,54 @@ export async function api(action, payload, opts) {
   }
 }
 
-/** Short-lived in-memory cache for reference data (departments, directory) within one page view. */
+/**
+ * Reference data (departments, the employee directory) changes rarely but was costing a full
+ * round-trip on every page — and one round-trip to Apps Script is well over a second. So it is
+ * cached twice: in memory for the current page view, and in localStorage across page views.
+ * A stored copy is served straight away and refreshed in the background, so screens open at once
+ * and still pick up yesterday's new joiner.
+ */
 const memo = new Map();
+const STORE_PREFIX = 'oc.c.';
+const STORE_TTL_MS = 6 * 60 * 60 * 1000;
+
+function storeGet(key) {
+  try {
+    const raw = localStorage.getItem(STORE_PREFIX + key);
+    if (!raw) return null;
+    const o = JSON.parse(raw);
+    return o && typeof o.at === 'number' ? o : null;
+  } catch (e) { return null; }
+}
+function storeSet(key, data) {
+  try { localStorage.setItem(STORE_PREFIX + key, JSON.stringify({ at: Date.now(), data })); } catch (e) { /* quota or private mode */ }
+}
+
+/** Drops everything cached across page views. Called when the signed-in person changes. */
+export function clearStoredCache() {
+  try {
+    Object.keys(localStorage).filter((k) => k.indexOf(STORE_PREFIX) === 0).forEach((k) => localStorage.removeItem(k));
+  } catch (e) { /* ignore */ }
+}
+
 export async function cachedApi(action, payload, ttlMs) {
   const key = action + ':' + JSON.stringify(payload || {});
   const hit = memo.get(key);
   if (hit && Date.now() - hit.at < (ttlMs || 60000)) return hit.promise;
-  const promise = api(action, payload).catch((e) => { memo.delete(key); throw e; });
-  memo.set(key, { at: Date.now(), promise });
-  return promise;
+
+  const request = () => {
+    const promise = api(action, payload)
+      .then((data) => { storeSet(key, data); return data; })
+      .catch((e) => { memo.delete(key); throw e; });
+    memo.set(key, { at: Date.now(), promise });
+    return promise;
+  };
+
+  const stored = storeGet(key);
+  if (stored && Date.now() - stored.at < STORE_TTL_MS) {
+    request().catch(() => { /* the stored copy is already on screen */ });
+    return stored.data;
+  }
+  return request();
 }
 export function clearApiCache() { memo.clear(); }
