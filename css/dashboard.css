@@ -96,9 +96,9 @@ a.sw:focus-visible { box-shadow: var(--focus); }
 .task-head { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; padding: 10px 10px 10px 12px; }
 .task-head .input { border-color: transparent; font-weight: 500; padding-left: 6px; }
 .task-head .input:hover { border-color: var(--rule-strong); }
-.task-head .select { width: auto; min-width: 150px; }
-.task-body { padding: 4px 12px 14px; border-top: 1px dashed var(--rule); }
-.task-body .form-grid { margin-top: 10px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.task-head .select { width: auto; min-width: 160px; }
+.task-head .btn.ghost.icon { color: var(--ink-3); }
+.task-head .btn.ghost.icon:hover { color: var(--bad); background: var(--bad-tint); }
 .task-meta { display: flex; gap: 10px; flex-wrap: wrap; padding: 0 12px 10px; font-size: 13px; color: var(--ink-3); }
 .carry-tag { color: #7A5520; font-weight: 500; }
 .task-error { color: var(--bad); font-size: 13px; padding: 0 12px 10px; font-weight: 500; }
