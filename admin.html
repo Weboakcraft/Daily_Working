@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Administration | Oakcraft Daily Working Tracker</title>
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#EEF0EF">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/dashboard.css">
+  <link rel="stylesheet" href="css/responsive.css">
+</head>
+<body>
+  <noscript><p style="padding:24px">The Oakcraft tracker needs JavaScript. Enable it in your browser settings.</p></noscript>
+  <div class="content" role="status"><p class="muted">Loading…</p></div>
+  <script type="module">
+    import { boot } from './js/app.js';
+    import { renderEmployees, renderDepartments } from './js/employees.js';
+    import { renderQuestionBuilder } from './js/questions.js';
+    import { renderSettings, renderAuditLog } from './js/admin.js';
+    boot({
+      page: 'admin',
+      roles: ['ADMIN', 'MANAGER'],
+      defaultRoute: 'employees',
+      routes: {
+        employees: { render: renderEmployees },
+        departments: { render: renderDepartments, roles: ['ADMIN'] },
+        questions: { render: renderQuestionBuilder, roles: ['ADMIN'] },
+        settings: { render: renderSettings, roles: ['ADMIN'] },
+        audit: { render: renderAuditLog, roles: ['ADMIN'] }
+      }
+    });
+  </script>
+</body>
+</html>

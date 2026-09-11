@@ -1,0 +1,86 @@
+/* Responsive layer: tablet and phone. The employee report form is designed phone-first. */
+
+@media (max-width: 1100px) {
+  .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .qb { grid-template-columns: 200px minmax(0, 1fr); }
+  .settings-grid { grid-template-columns: 1fr; }
+  .settings-nav { position: static; flex-direction: row; flex-wrap: wrap; gap: 4px; }
+}
+
+@media (max-width: 900px) {
+  :root { --header-h: 56px; }
+  .app { grid-template-columns: 1fr; }
+  .sidebar {
+    position: fixed; z-index: 120; left: 0; top: 0; bottom: 0; width: min(290px, 86vw); background: var(--mesh);
+    transform: translateX(-102%); transition: transform 0.2s ease-out; box-shadow: 0 0 40px rgba(34, 38, 42, 0.25);
+  }
+  .app.nav-open .sidebar { transform: none; }
+  .nav-scrim { position: fixed; inset: 0; background: rgba(34, 38, 42, 0.4); z-index: 110; }
+  .topbar .menu-btn { display: inline-flex; }
+  .topbar { padding: 0 12px; }
+  .content { padding: 18px 14px 56px; }
+  .clock { display: none; }
+  .grid-2, .grid-3 { grid-template-columns: 1fr; }
+  .span-2 { grid-column: auto; }
+  .qb { grid-template-columns: 1fr; }
+  .qb-depts { position: static; display: flex; overflow-x: auto; gap: 4px; }
+  .qb-depts a { white-space: nowrap; }
+  .score { grid-template-columns: 1fr; gap: 8px; }
+  .auth-page { grid-template-columns: 1fr; }
+  .auth-side { padding: 28px 22px; min-height: 0; }
+  .auth-side h1 { font-size: 28px; margin-top: 28px; }
+  .auth-grid { display: none; }
+}
+
+@media (max-width: 640px) {
+  body { font-size: 15px; }
+  h1 { font-size: 24px; }
+  .page-head { align-items: flex-start; }
+  .page-actions .btn .btn-text { display: none; }
+  .search input { font-size: 16px; }
+  .input, .select, .textarea { font-size: 16px; min-height: 44px; }
+  .form-grid, .task-body .form-grid { grid-template-columns: 1fr; }
+  .filters-toggle { display: inline-flex; margin-bottom: 10px; }
+  .filters:not(.open) > .field:not(.search-field), .filters:not(.open) > .row, .filters:not(.open) > .check, .filters:not(.open) > [data-extra] { display: none !important; }
+  .filters .field { min-width: calc(50% - 5px); flex: 1 1 calc(50% - 5px); }
+  .filters .field.search-field { flex-basis: 100%; }
+  .ledger { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ledger > div { border-right: 0; border-bottom: 1px solid var(--rule); }
+  .ledger > div:nth-child(odd) { border-right: 1px solid var(--rule); }
+  .ledger .fig { font-size: 24px; }
+  .modal-backdrop { padding: 0; place-items: end stretch; }
+  .modal, .modal.wide { width: 100%; max-height: 92vh; border-radius: 12px 12px 0 0; }
+  .modal-foot .btn { flex: 1; }
+  .toasts { left: 12px; right: 12px; bottom: 76px; max-width: none; }
+
+  /* Stacked tables: each row becomes a block with labelled cells */
+  table.data.stack-sm thead { display: none; }
+  table.data.stack-sm, table.data.stack-sm tbody, table.data.stack-sm tr, table.data.stack-sm td { display: block; width: 100%; }
+  table.data.stack-sm tr { padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+  table.data.stack-sm td { border: 0; padding: 2px 0; text-align: left !important; }
+  table.data.stack-sm td[data-label]::before { content: attr(data-label) ': '; color: var(--ink-3); font-size: 13px; }
+  table.data.stack-sm td.primary-cell::before { content: none; }
+  table.data.stack-sm td.primary-cell { font-weight: 600; font-size: 15px; }
+
+  /* Report form */
+  .steps { display: none; }
+  .step-mobile { display: block; margin-bottom: 16px; }
+  .step-mobile .segbar { height: 6px; margin-top: 8px; gap: 3px; background: none; }
+  .step-mobile .segbar span { flex: 1; background: var(--rule); border-radius: 2px; }
+  .step-mobile .segbar span.done { background: var(--ink-2); }
+  .step-mobile .segbar span.current { background: var(--brand); }
+  .step-mobile .segbar span.err { background: var(--bad); }
+  .task-head { grid-template-columns: 1fr auto; }
+  .task-head .select { grid-column: 1 / 2; min-width: 0; width: 100%; }
+  .task-head .input { grid-column: 1 / -1; border-color: var(--rule); }
+  .cf-item { grid-template-columns: 1fr; }
+  .cf-actions { justify-content: flex-start; }
+  .sticky-bar { margin: 18px -14px 0; padding: 10px 14px calc(10px + env(safe-area-inset-bottom)); }
+  .sticky-bar .btn { height: 46px; flex: 1 1 auto; }
+  .save-state { flex-basis: 100%; }
+  .stepper { max-width: none; }
+  .stepper button { width: 54px; }
+  .heat .h-name { max-width: 120px; }
+  .comp { grid-template-columns: 1fr 52px; }
+  .comp .bar { grid-column: 1 / -1; grid-row: 2; }
+}

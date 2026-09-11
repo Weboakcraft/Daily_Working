@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in | Oakcraft Daily Working Tracker</title>
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/responsive.css">
+</head>
+<body>
+  <div class="auth-page">
+    <section class="auth-side" aria-hidden="false">
+      <a class="brand" href="login.html"><img src="assets/logo-mark.svg" alt=""><span><span class="brand-name">Oakcraft</span><span class="brand-sub">Daily Working Tracker</span></span></a>
+      <div>
+        <h1>Log today's work in a few minutes.</h1>
+        <p>Tasks, department numbers, blockers and tomorrow's plan in one report, so your manager sees what moved and what needs help.</p>
+      </div>
+      <div class="auth-grid" aria-hidden="true" id="auth-grid"></div>
+      <p class="small" style="margin:0">Internal system for Oakcraft employees. Access is logged.</p>
+    </section>
+    <main class="auth-main" id="main">
+      <div class="auth-card" id="auth-card">
+        <p class="muted" role="status">Loading…</p>
+      </div>
+    </main>
+  </div>
+  <script type="module">
+    import { initLogin } from './js/login.js';
+    initLogin();
+  </script>
+</body>
+</html>
