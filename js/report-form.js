@@ -16,7 +16,7 @@ import { whatsAppButtonHtml, bindWhatsAppButton } from './whatsapp.js';
 
 const STEP_DEFS = [
   { id: 'carry', title: 'Unfinished work', desc: 'These tasks are still open from earlier days. Continue them today, mark them done, or cancel them.' },
-  { id: 'tasks', title: "Today's tasks", desc: 'Add each piece of work with its status. Open the details to add time, customer or order references.' },
+  { id: 'tasks', title: "Today's tasks", desc: 'Add each thing you worked on today and set its status.' },
   { id: 'summary', title: 'Work summary', sections: ['WORK_SUMMARY', 'COMPLETED', 'PENDING', 'CARRY_FORWARD'], desc: 'Describe the day in your own words.' },
   { id: 'kpi', title: 'Department numbers', sections: ['KPI'], desc: "Enter today's figures. Leave a number blank if it does not apply." },
   { id: 'issues', title: 'Issues and follow-ups', sections: ['BLOCKERS', 'FOLLOWUPS', 'MEETINGS'], desc: 'Tell your manager what is stuck and what you followed up on.' },
