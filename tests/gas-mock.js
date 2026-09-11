@@ -10,7 +10,7 @@ const vm = require('vm');
 const crypto = require('crypto');
 
 const BACKEND_DIR = path.join(__dirname, '..', 'backend-apps-script');
-const LOAD_ORDER = ['Config', 'Utils', 'Db', 'Settings', 'Audit', 'Auth', 'Main', 'Employees', 'Questions',
+const LOAD_ORDER = ['Config', 'Utils', 'Cache', 'Db', 'Settings', 'Audit', 'Auth', 'Main', 'Employees', 'Questions',
   'Reports', 'Tasks', 'Analytics', 'SearchExport', 'Notifications', 'Setup'];
 
 // ---------------- Spreadsheet ----------------

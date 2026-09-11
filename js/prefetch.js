@@ -8,6 +8,11 @@
  */
 import { CONFIG } from './config.js';
 
+/* Keeps the app's own files in the browser, so a second visit does not re-download them. */
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => { /* unsupported or blocked */ }); });
+}
+
 const TOKEN_KEY = 'oc.token';
 
 try {

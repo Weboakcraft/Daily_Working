@@ -149,3 +149,28 @@ export async function cachedApi(action, payload, ttlMs) {
   return request();
 }
 export function clearApiCache() { memo.clear(); }
+
+/**
+ * Shows what was on screen last time, immediately, then replaces it when the server answers.
+ *
+ * The heavy dashboard queries take several seconds against Sheets, and staring at a skeleton for
+ * that long on every visit is the main reason the app felt slow. The figures from the last visit
+ * are almost always still right, so they go up at once and `onFresh` quietly corrects them.
+ *
+ * @param {string} action
+ * @param {object} payload
+ * @param {(data:any)=>void} onFresh called only when stored data was shown first
+ * @param {Promise<any>} [inFlight] a request already started elsewhere, to avoid asking twice
+ * @returns {Promise<{data:any, stale:boolean}>}
+ */
+export async function staleThenFresh(action, payload, onFresh, inFlight) {
+  const key = action + ':' + JSON.stringify(payload || {});
+  const pending = (inFlight || api(action, payload)).then((data) => { storeSet(key, data); return data; });
+  const stored = storeGet(key);
+  if (stored && Date.now() - stored.at < STORE_TTL_MS) {
+    pending.then((fresh) => { try { onFresh(fresh); } catch (e) { /* view moved on */ } })
+      .catch(() => { /* the stored copy stays on screen */ });
+    return { data: stored.data, stale: true };
+  }
+  return { data: await pending, stale: false };
+}

@@ -65,7 +65,8 @@ function minDate() { return Array.prototype.slice.call(arguments).filter(Boolean
 
 // ============================ ADMIN / MANAGER DASHBOARD ============================
 
-function apiGetDashboardData(p, user) {
+function apiGetDashboardData(p, user) { return ocCached_('dash', p, user, apiGetDashboardData_); }
+function apiGetDashboardData_(p, user) {
   const s = getSettingsMap();
   const range = analyticsRange(p, 0);
   const from = range.from, to = range.to;
@@ -470,7 +471,8 @@ function computeScore(components, weights) {
 
 // ============================ EMPLOYEE DASHBOARD ============================
 
-function apiGetMyDashboard(p, user) {
+function apiGetMyDashboard(p, user) { return ocCached_('mine', p, user, apiGetMyDashboard_); }
+function apiGetMyDashboard_(p, user) {
   const s = getSettingsMap();
   const today = todayStr();
   const emp = getEmployeeOrThrow(user.id);
@@ -572,7 +574,8 @@ function apiGetEmployeeAnalytics(p, user) {
 
 // ============================ DEPARTMENT ANALYTICS ============================
 
-function apiGetDepartmentAnalytics(p, user) {
+function apiGetDepartmentAnalytics(p, user) { return ocCached_('dept', p, user, apiGetDepartmentAnalytics_); }
+function apiGetDepartmentAnalytics_(p, user) {
   const s = getSettingsMap();
   const range = analyticsRange(p, 29);
   const from = range.from, to = range.to;

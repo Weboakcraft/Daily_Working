@@ -590,7 +590,7 @@ export async function boot(opts) {
   const groups = navFor(user);
   setHTML(app, html`<a class="skip-link" href="#main">Skip to content</a>
     <aside class="sidebar" aria-label="Main navigation">
-      <a class="brand" href="${homeFor(user)}"><img src="assets/logo-mark.svg" alt=""><span><span class="brand-name">${session.settings.COMPANY_NAME}</span><span class="brand-sub">${session.settings.APP_SUBTITLE}</span></span></a>
+      <a class="brand brand-lg" href="${homeFor(user)}"><img src="assets/oakcraft-logo.png" alt="${session.settings.COMPANY_NAME}" width="156" height="132"><span><span class="brand-sub">${session.settings.APP_SUBTITLE}</span></span></a>
       ${groups.map((g) => html`<nav class="nav-group" aria-label="${g.title || 'My work'}">${g.title ? html`<div class="nav-group-title">${g.title}</div>` : ''}
         ${g.items.map((it) => html`<a class="nav-link" href="${it.href}" data-key="${it.key}">${icon(it.icon)}<span>${it.label}</span></a>`)}</nav>`)}
       <div class="sidebar-foot">${user.isDemo ? html`<p><span class="pill warn plain">Demo account</span></p>` : ''}Version ${CONFIG.APP_VERSION}</div>

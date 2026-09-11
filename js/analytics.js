@@ -1,5 +1,5 @@
 /** Employee dashboard (home), employee analytics and profile. */
-import { api, ApiError } from './api.js';
+import { api, ApiError, staleThenFresh } from './api.js';
 import {
   html, setHTML, $, $$, on, icon, toast, errorMessage, renderError, skeleton, emptyState, renderTable, field, showFieldErrors,
   withBusy, fmtDate, fmtDateTime, fmtTime, fmtHm, fmtNum, fmtPct, fmtMinutes, fmtMonth, titleCase, reportPill, followUpPill, prio,
@@ -34,10 +34,16 @@ function greeting() {
 
 export async function renderMyDashboard(ctx) {
   const c = ctx.content;
+  const draw = (data) => { if (ctx.isCurrent()) drawMyDashboard(ctx, data); };
   setHTML(c, html`${ctx.head('Home')}${skeleton(6)}`);
   let d;
-  try { d = await api('getMyDashboard'); } catch (e) { if (ctx.isCurrent()) { setHTML(c, ctx.head('Home')); const b = document.createElement('div'); c.appendChild(b); renderError(b, e, () => renderMyDashboard(ctx)); } return; }
-  if (!ctx.isCurrent()) return;
+  try { const r = await staleThenFresh('getMyDashboard', {}, draw); d = r.data; } catch (e) { if (ctx.isCurrent()) { setHTML(c, ctx.head('Home')); const b = document.createElement('div'); c.appendChild(b); renderError(b, e, () => renderMyDashboard(ctx)); } return; }
+  draw(d);
+}
+
+/** Paints the screen. Called once with the stored copy and again when the server answers. */
+function drawMyDashboard(ctx, d) {
+  const c = ctx.content;
   const t = d.today, st = t.status;
   const due = fmtHm(t.deadline.time);
   const pastDue = Date.now() > new Date(t.deadline.graceEnd).getTime();

@@ -111,6 +111,7 @@ function doPost(e) {
     const payload = (req.payload && typeof req.payload === 'object') ? req.payload : {};
     const data = route.fn(payload, user, req.meta || {});
     flushAudit();
+    if (req.requestId) ocBumpCache_(); // a write just happened: retire every cached answer
     const body = JSON.stringify({ ok: true, data: data === undefined ? null : data });
     if (idemKey) {
       if (body.length < 90000) cache.put(idemKey, body, LIMITS.IDEMPOTENCY_SEC); else cache.remove(idemKey);

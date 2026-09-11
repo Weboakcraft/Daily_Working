@@ -1,5 +1,5 @@
 /** Management views: overview dashboard, daily management summary and department analytics. */
-import { api } from './api.js';
+import { api, staleThenFresh } from './api.js';
 import {
   html, raw, esc, setHTML, $, $$, on, icon, toast, errorMessage, renderError, skeleton, emptyState, renderTable, field, formValues,
   fmtDate, fmtDateTime, fmtNum, fmtPct, fmtMonth, titleCase, reportLabel, followUpPill, prio, attr,
@@ -97,10 +97,12 @@ export async function renderOverview(ctx) {
     lastFilters = p;
     body.setAttribute('aria-busy', 'true');
     try {
-      const d = await (primed.take(p) || api('getDashboardData', p));
+      const res = await staleThenFresh('getDashboardData', p, (fresh) => {
+        if (ctx.isCurrent()) { body.removeAttribute('aria-busy'); drawOverview(ctx, body, fresh); }
+      }, primed.take(p) || undefined);
       if (!ctx.isCurrent()) return;
-      body.removeAttribute('aria-busy');
-      drawOverview(ctx, body, d);
+      if (!res.stale) body.removeAttribute('aria-busy');
+      drawOverview(ctx, body, res.data);
     } catch (e) { if (ctx.isCurrent()) renderError(body, e, () => load(v)); }
   };
   bindFilters(form, load);

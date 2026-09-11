@@ -21,7 +21,7 @@ function watch(page, errors) {
 async function login(page, user, pass) {
   // Sign out any previous user in this browser context first.
   // A static file on the same origin: no app script runs, so nothing can redirect mid-navigation.
-  await page.goto(BASE + '/assets/favicon.svg');
+  await page.goto(BASE + '/assets/favicon.png');
   await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); });
   await page.goto(BASE + '/login.html');
   await page.waitForSelector('[name=username]', { timeout: 15000 });

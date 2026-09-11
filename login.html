@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sign in | Oakcraft Daily Working Tracker</title>
   <meta name="robots" content="noindex, nofollow">
-  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="assets/favicon.png" type="image/png">
+  <link rel="apple-touch-icon" href="assets/favicon.png">
   <link rel="preconnect" href="https://script.google.com" crossorigin>
   <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
   <link rel="preload" as="font" type="font/woff2" href="assets/fonts/IBMPlexSans-Regular-Latin1.woff2" crossorigin>
@@ -16,7 +17,7 @@
 <body>
   <div class="auth-page">
     <section class="auth-side" aria-hidden="false">
-      <a class="brand" href="login.html"><img src="assets/logo-mark.svg" alt=""><span><span class="brand-name">Oakcraft</span><span class="brand-sub">Daily Working Tracker</span></span></a>
+      <a class="brand brand-lg" href="login.html"><img src="assets/oakcraft-logo-light.png" alt="Oakcraft" width="212" height="180"><span><span class="brand-sub">Daily Working Tracker</span></span></a>
       <div>
         <h1>Log today's work in a few minutes.</h1>
         <p>Tasks, department numbers, blockers and tomorrow's plan in one report, so your manager sees what moved and what needs help.</p>
@@ -30,6 +31,7 @@
       </div>
     </main>
   </div>
+  <script type="module" src="js/prefetch.js"></script>
   <script type="module">
     import { initLogin } from './js/login.js';
     initLogin();

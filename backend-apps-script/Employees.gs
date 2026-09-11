@@ -52,7 +52,8 @@ function apiGetEmployees(p, user) {
 }
 
 /** Lightweight list of active employees (for owner / manager pickers). */
-function apiGetEmployeeDirectory(p, user) {
+function apiGetEmployeeDirectory(p, user) { return ocCached_('dir', p, user, apiGetEmployeeDirectory_); }
+function apiGetEmployeeDirectory_(p, user) {
   const deptMap = indexBy(Db.readAll('Departments'), 'DepartmentID');
   const scope = getScope(user);
   return Db.readAll('Employees')
@@ -245,7 +246,8 @@ function apiImportEmployees(p, user) {
 
 // ---------------- Departments API ----------------
 
-function apiGetDepartments(p, user) {
+function apiGetDepartments(p, user) { return ocCached_('depts', p, user, apiGetDepartments_); }
+function apiGetDepartments_(p, user) {
   const emps = Db.readAll('Employees');
   const empMap = indexBy(emps, 'EmployeeID');
   const includeInactive = p.includeInactive && user.role === 'ADMIN';
