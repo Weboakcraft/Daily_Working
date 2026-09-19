@@ -46,10 +46,18 @@ function drawMyDashboard(ctx, d) {
   const c = ctx.content;
   const t = d.today, st = t.status;
   const due = fmtHm(t.deadline.time);
-  const pastDue = Date.now() > new Date(t.deadline.graceEnd).getTime();
+  // Server time, so a phone with a wrong clock is not told the window is still open.
+  // This screen may be painted from a stored copy, so a large gap means stale data, not a bad clock.
+  const raw = d.serverTime ? Date.now() - new Date(d.serverTime).getTime() : 0;
+  const skew = Math.abs(raw) < 5 * 60000 ? raw : 0;
+  const now = Date.now() - skew;
+  const closesAt = t.deadline.closesAt ? new Date(t.deadline.closesAt).getTime() : 0;
+  const closed = !!closesAt && now >= closesAt;
+  const pastDue = now > new Date(t.deadline.graceEnd).getTime();
   let line, cta;
   if (!t.workingDay.working) { line = html`Today is ${t.workingDay.reason.toLowerCase()}. No report is expected.`; cta = html`<a class="btn" href="employee.html#today">Submit a report anyway</a>`; }
   else if (st === 'SUBMITTED' || st === 'LATE') { line = html`Today's report is in${st === 'LATE' ? ', marked late' : ''}.`; cta = html`<a class="btn" href="reports.html#view/${t.report.reportId}">View today's report</a>`; }
+  else if (closed) { line = html`Reporting closed at ${due} and today's report did not go in. Ask the admin to reopen it.`; cta = ''; }
   else if (st === 'DRAFT' || st === 'REOPENED') { line = pastDue ? html`Your draft is saved, and the deadline has passed. Submit it now.` : html`Your draft is saved. Submit it by ${due}.`; cta = html`<a class="btn primary" href="employee.html#today">${icon('pen')}Continue today's report</a>`; }
   else { line = pastDue ? html`Today's report is not started, and the ${due} deadline has passed.` : html`Today's report is not started. It is due by ${due}.`; cta = html`<a class="btn primary" href="employee.html#today">${icon('pen')}Start today's report</a>`; }
   const m = d.month;

@@ -71,6 +71,15 @@ test('first login requires a password change before any other action', () => {
   adminPass = 'Walnut2026';
   okRes(call('getEmployees', {}, adminToken));
 });
+test('a fresh Sheet ships with the 21:15 window closed at the deadline', () => {
+  const st = okRes(call('getSettings', {}, adminToken)).settings;
+  eq(st.REPORT_DEADLINE, '21:15');
+  eq(st.GRACE_PERIOD_MINUTES, 0);
+  eq(st.LOCK_AFTER_DEADLINE, true);
+  // The rest of the suite runs at whatever time of day it happens to be, so it needs an open
+  // window. The hard cut-off is covered on its own further down.
+  okRes(call('saveSettings', { settings: { REPORT_DEADLINE: '19:00', GRACE_PERIOD_MINUTES: 15, LOCK_AFTER_DEADLINE: false } }, adminToken));
+});
 test('password hash, not the token, is stored in Sessions', () => {
   const s = rows('Sessions');
   ok(s.length > 0);
@@ -320,6 +329,42 @@ test('lock after deadline blocks edits unless reopened', () => {
   eq(st.canEdit, false);
   errRes(call('saveDraft', { responses: {}, tasks: [] }, outsiderToken), 'REPORT_LOCKED');
   okRes(call('saveSettings', { settings: { LOCK_AFTER_DEADLINE: false, REPORT_DEADLINE: '19:00', GRACE_PERIOD_MINUTES: 15 } }, adminToken));
+});
+test('with no grace period the window shuts on the deadline itself', () => {
+  // One minute ago: closed. One minute from now: still open. Nothing in between.
+  const mins = (n) => {
+    const d = new Date(Date.now() + n * 60000);
+    const hhmm = (h) => (h < 10 ? '0' : '') + h;
+    return hhmm(d.getHours()) + ':' + hhmm(d.getMinutes());
+  };
+  okRes(call('saveSettings', { settings: { LOCK_AFTER_DEADLINE: true, GRACE_PERIOD_MINUTES: 0, REPORT_DEADLINE: mins(-1) } }, adminToken));
+  let st = okRes(call('getTodayReport', {}, outsiderToken));
+  eq(st.canEdit, false);
+  eq(st.deadline.graceMinutes, 0);
+  eq(st.deadline.locks, true);
+  eq(st.deadline.closesAt, st.deadline.graceEnd, 'the browser is told exactly when to close the form');
+  errRes(call('submitReport', { responses: {}, tasks: [] }, outsiderToken), 'REPORT_LOCKED');
+
+  okRes(call('saveSettings', { settings: { REPORT_DEADLINE: mins(3) } }, adminToken));
+  st = okRes(call('getTodayReport', {}, outsiderToken));
+  eq(st.canEdit, true);
+  okRes(call('saveDraft', { responses: {}, tasks: [] }, outsiderToken));
+
+  okRes(call('saveSettings', { settings: { LOCK_AFTER_DEADLINE: false, REPORT_DEADLINE: '19:00', GRACE_PERIOD_MINUTES: 15 } }, adminToken));
+});
+test('the reporting window migration runs once and does not fight the admin afterwards', () => {
+  okRes(call('saveSettings', { settings: { REPORT_DEADLINE: '18:30', GRACE_PERIOD_MINUTES: 20, LOCK_AFTER_DEADLINE: false } }, adminToken));
+  b.run('setupOakcraftSystem');
+  let st = okRes(call('getSettings', {}, adminToken)).settings;
+  eq(st.REPORT_DEADLINE, '18:30', 'setup leaves an admin choice alone once the change has run');
+
+  b.run('applyReportingWindow');
+  st = okRes(call('getSettings', {}, adminToken)).settings;
+  eq(st.REPORT_DEADLINE, '21:15');
+  eq(st.GRACE_PERIOD_MINUTES, 0);
+  eq(st.LOCK_AFTER_DEADLINE, true);
+
+  okRes(call('saveSettings', { settings: { REPORT_DEADLINE: '19:00', GRACE_PERIOD_MINUTES: 15, LOCK_AFTER_DEADLINE: false } }, adminToken));
 });
 
 console.log('\nSecurity');

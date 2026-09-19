@@ -14,6 +14,7 @@ Deployment steps for non-developers are in **[docs/DEPLOYMENT.md](docs/DEPLOYMEN
 - A step-by-step daily report: unfinished work from earlier days, today's tasks, work summary, department numbers, issues and follow-ups, tomorrow's plan, then a review screen.
 - Drafts save automatically every few seconds. If the connection drops, answers are kept on the device and offered back when the page is reopened.
 - Submitting gives a receipt with a Report ID. Pressing Submit twice, or a retry on a flaky network, never creates a second report.
+The reporting window closes at **21:15** (9:15 PM). The form counts down to it, saves what is pending a few seconds before, and then closes itself — and the server refuses anything that arrives afterwards, so the two can never disagree. A report that missed the window needs an admin to reopen it. The time, the grace period and whether the window closes at all are all in Settings → Reporting; see "Reporting window" below.
 - **Send on WhatsApp:** after submitting, the employee can share the full report on WhatsApp in a ready-formatted message. WhatsApp opens with the message filled in; the employee chooses the contact or group and presses Send. The tracker never sends anything by itself (see section 11a).
 - Unfinished tasks are offered the next day: continue them, mark them done, or cancel them.
 - A home screen with today's status, this month's numbers, open follow-ups and an eight-week trend, plus personal analytics and report history.
@@ -145,6 +146,18 @@ The first column of every tab is its ID. Extra columns you add by hand are prese
 
 Do not rename or delete the built-in columns. Do not edit Credentials or Sessions by hand; use the app to reset passwords. The app keeps a cached copy of Employees, Departments, Questions and Settings for speed; after editing those tabs directly in the Sheet, click **Oakcraft → Apply manual edits to the app now** (otherwise the change shows up within 30 minutes).
 
+**Reporting window.** Three settings decide it, and they only make sense together:
+
+| Setting | Live value | What it does |
+| --- | --- | --- |
+| `REPORT_DEADLINE` | `21:15` | The time reports are due, in the company timezone. |
+| `GRACE_PERIOD_MINUTES` | `0` | Minutes after the deadline in which a report is still accepted, marked LATE. At 0 there is no such window. |
+| `LOCK_AFTER_DEADLINE` | `TRUE` | Whether the deadline actually shuts. At TRUE nothing is accepted after deadline + grace. |
+
+With grace at 0 and the lock on, 21:15 is a hard stop: nothing is ever marked LATE, because a late report cannot be created. Turn the lock off, or give it a grace period, and LATE comes back.
+
+Changing a default in the code does not move a Sheet that is already set up — the stored value wins. `setupOakcraftSystem` applies each shipped change once (it records which, so an admin's later edit is never overwritten), and **Oakcraft → Apply the reporting deadline to this Sheet** forces the current window on demand.
+
 **Report statuses:** NOT STARTED (no row yet), DRAFT, SUBMITTED, LATE (first submitted after deadline plus grace), REOPENED.
 **Task statuses:** COMPLETED, IN PROGRESS, PENDING, BLOCKED, CARRIED FORWARD, CANCELLED. **Priorities:** LOW, MEDIUM, HIGH, URGENT.
 
@@ -245,6 +258,10 @@ The simulator imitates Sheets, Cache, Lock and Properties closely, but it is not
 | Changes to `.gs` files have no effect | Apps Script serves the deployed version. Use **Deploy → Manage deployments → Edit → New version**; the URL stays the same. |
 | Someone is locked out | Wait 15 minutes, or an admin resets their password from Employees. |
 | A report was submitted with a mistake | An admin opens the report and chooses **Reopen** with a reason. |
+| "Reporting for … closed at 21:15" | The window shut before the report was submitted. An admin opens the report and chooses Reopen with a reason; the window does not reopen by itself. |
+| The deadline in the app is not 21:15 | The Sheet holds an older value. In the Sheet, choose Oakcraft → Apply the reporting deadline to this Sheet, or set it in Settings → Reporting. |
+| "The system is busy" while saving | Every write queues on one lock. It should now be rare; if it happens daily, check the Error log for slow actions and see the note about the write queue under Known limits. |
+| The app looks like an old version | The browser keeps a copy of the app, refreshed whenever `APP_VERSION` in `js/config.js` changes. Bump that value when you publish frontend changes. |
 | Excel export downloads a CSV | The browser could not load the Excel helper from cdnjs (network or blocker). The CSV opens in Excel. |
 | Reminders are not sent | Notifications switched off, no channel selected, triggers not installed, or the employee has no email address. Use **Send a test to me**. |
 | An error shows "Reference: ERR-…" | Find that ID in **Audit log → System errors** for the technical details. |
@@ -261,6 +278,7 @@ The simulator imitates Sheets, Cache, Lock and Properties closely, but it is not
 ## 16. Known limits
 
 - Google Apps Script quotas apply (for example, script run time of 6 minutes per call and daily email limits). Normal daily use by around 100 people is well within them; very large exports over long periods can be slow.
-- Requests take roughly 1–3 seconds because Apps Script starts per request; the app shows loading states and saves drafts in the background.
+- Requests take roughly 1–3 seconds because Apps Script starts per request; the app shows loading states and saves drafts in the background. The app itself is served from the browser's own cache after the first visit, so only the data waits on the network.
+- Writes across the whole system queue on one Google Apps Script lock. Reads and validation happen before that lock is taken and only the writes hold it, and drafts save on a 20-second idle timer rather than on every keystroke, which is what makes a roomful of people reporting at the same time workable. It is still a single queue: if the team grows several times over, saving reports is the part that will need splitting up first.
 - Google Sheets comfortably holds several years of reports for a team of this size. If the Sheet grows toward a few hundred thousand task rows, archive old years into a copy.
 - PDF export uses the browser's print dialog ("Save as PDF").

@@ -8,7 +8,7 @@
 
 const APP = {
   NAME: 'Oakcraft Daily Working Tracker',
-  VERSION: '1.0.0'
+  VERSION: '1.1.0'
 };
 
 /** Google Sheets schema. First column of every sheet is its primary key. */
@@ -82,7 +82,13 @@ const LIMITS = {
   EXPORT_MAX_ROWS: 20000,
   HASH_ITERATIONS: 400,
   RATE_LIMIT_PER_MIN: 240,
-  SESSION_CACHE_SEC: 600,
+  // Six hours is the longest CacheService keeps anything. Holding sessions that long means a
+  // signed-in person almost never makes the server scan the Sessions sheet to prove who they are.
+  SESSION_CACHE_SEC: 21600,
   IDEMPOTENCY_SEC: 600,
-  LOCK_WAIT_MS: 25000
+  // Waiting 25 seconds for the shared write lock meant a busy evening queued everybody behind one
+  // slow save and then timed them all out together. Failing sooner lets the client retry with a
+  // backoff, which drains the queue instead of deepening it.
+  LOCK_WAIT_MS: 10000,
+  SESSION_PRUNE_MAX: 500
 };

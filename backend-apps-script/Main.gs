@@ -38,7 +38,9 @@ function getRoutes() {
 
     // Daily reports & tasks
     getTodayReport: { fn: apiGetTodayReport, roles: ALL },
-    saveDraft: { fn: apiSaveDraft, roles: ALL },
+    // A draft autosave is not reportable data, so it does not retire everyone's cached
+    // dashboards. Those refresh on their own within OC_CACHE_SECONDS.
+    saveDraft: { fn: apiSaveDraft, roles: ALL, keepsCache: true },
     submitReport: { fn: apiSubmitReport, roles: ALL },
     reopenReport: { fn: apiReopenReport, roles: ADMIN },
     getReport: { fn: apiGetReport, roles: ALL },
@@ -111,7 +113,7 @@ function doPost(e) {
     const payload = (req.payload && typeof req.payload === 'object') ? req.payload : {};
     const data = route.fn(payload, user, req.meta || {});
     flushAudit();
-    if (req.requestId) ocBumpCache_(); // a write just happened: retire every cached answer
+    if (req.requestId && !route.keepsCache) ocBumpCache_(); // a real write: retire every cached answer
     const body = JSON.stringify({ ok: true, data: data === undefined ? null : data });
     if (idemKey) {
       if (body.length < 90000) cache.put(idemKey, body, LIMITS.IDEMPOTENCY_SEC); else cache.remove(idemKey);
@@ -150,6 +152,7 @@ function onOpen() {
       .addItem('2. Load demo data (development only)', 'seedDemoData')
       .addItem('3. Remove demo data', 'removeDemoData')
       .addSeparator()
+      .addItem('Apply the reporting deadline to this Sheet', 'applyReportingWindow')
       .addItem('Install scheduled jobs (reminders)', 'installTriggers')
       .addItem('Apply manual edits to the app now', 'refreshAppCache')
       .addToUi();

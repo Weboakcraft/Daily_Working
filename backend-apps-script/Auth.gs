@@ -88,10 +88,38 @@ function apiLogin(p, _user, meta) {
     SessionID: newId('SES'), TokenHash: sha256b64(token), EmployeeID: emp.EmployeeID, CreatedAt: now.toISOString(),
     ExpiresAt: expires.toISOString(), Revoked: false, UserAgent: cleanText(meta && meta.ua, 200)
   };
-  Db.withLock(function () { Db.insert('Sessions', [session]); });
+  Db.withLock(function () {
+    Db.insert('Sessions', [session]);
+    pruneSessions();
+  });
   cache.put('sess:' + session.TokenHash, JSON.stringify({ employeeId: emp.EmployeeID, expiresAt: session.ExpiresAt }), LIMITS.SESSION_CACHE_SEC);
   audit({ id: emp.EmployeeID }, 'LOGIN', 'Employee', emp.EmployeeID, '', { sessionId: session.SessionID });
   return { token: token, expiresAt: session.ExpiresAt, user: toSessionUser(emp, bool(cred.MustChange)) };
+}
+
+/**
+ * Clears out sessions that have expired or been revoked, at most once an hour.
+ *
+ * Without this the Sessions tab only ever grows, and every sign-in whose session has dropped out
+ * of the cache makes the server search that whole tab to prove who the person is. The scheduled
+ * job does the same work, but it has to be installed by hand, so this covers the Sheets where
+ * nobody got round to it. Caller holds the script lock.
+ */
+function pruneSessions() {
+  const cache = CacheService.getScriptCache();
+  try {
+    if (cache.get('sess:pruned')) return 0;
+    cache.put('sess:pruned', '1', 3600);
+  } catch (e) { return 0; }
+  try {
+    const now = nowIso();
+    const stale = Db.readAll('Sessions').filter(function (r) {
+      return bool(r.Revoked) || !r.ExpiresAt || String(r.ExpiresAt) < now;
+    }).slice(0, LIMITS.SESSION_PRUNE_MAX);
+    if (!stale.length) return 0;
+    Db.removeRows('Sessions', stale);
+    return stale.length;
+  } catch (e) { return 0; }
 }
 
 /** Resolves a token into the current user or throws UNAUTHORIZED. */

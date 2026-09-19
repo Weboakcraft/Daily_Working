@@ -92,8 +92,24 @@ async function fillStep(page) {
     const minutes = await p.inputValue('#td-' + key);
     if (minutes !== '90') throw new Error('duration not calculated: ' + minutes);
   });
-  await step('draft auto-saves', async () => {
+  await step('draft saves when the app goes to the background', async () => {
+    // Drafts are deliberately not sent on every keystroke any more — that write rate is what
+    // jammed the shared lock. Switching away from the app is one of the moments that must still
+    // flush, because on a phone it is the most common way to leave a half-written report.
+    await p.evaluate(() => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
     await p.waitForFunction(() => { const el = document.querySelector('[data-save-state]'); return !!el && /Draft saved/.test(el.textContent); }, null, { timeout: 15000 });
+    await p.evaluate(() => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+  });
+  await step('draft auto-saves while typing', async () => {
+    await p.fill('[data-new-task]', 'Quote for Verma Residency');
+    await p.press('[data-new-task]', 'Enter');
+    await p.waitForFunction(() => { const el = document.querySelector('[data-save-state]'); return !!el && /Draft saved/.test(el.textContent); }, null, { timeout: 40000 });
   });
   await step('employee completes every step and sees validation before submit', async () => {
     for (let i = 0; i < 8; i++) {

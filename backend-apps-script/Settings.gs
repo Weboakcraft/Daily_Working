@@ -10,11 +10,11 @@ function settingDefs() {
     TIMEZONE: { def: 'Asia/Kolkata', type: 'timezone', pub: true, desc: 'Timezone used for report dates and deadlines' },
     OFFICE_START_TIME: { def: '09:30', type: 'time', pub: true, desc: 'Office start time (HH:mm)' },
     OFFICE_END_TIME: { def: '19:00', type: 'time', pub: true, desc: 'Office end time (HH:mm)' },
-    REPORT_DEADLINE: { def: '19:00', type: 'time', pub: true, desc: 'Daily report deadline (HH:mm)' },
-    GRACE_PERIOD_MINUTES: { def: 15, type: 'int', min: 0, max: 600, pub: true, desc: 'Minutes after the deadline before a report is LATE' },
+    REPORT_DEADLINE: { def: '21:15', type: 'time', pub: true, desc: 'Daily report deadline (HH:mm). Reports cannot be submitted after this time.' },
+    GRACE_PERIOD_MINUTES: { def: 0, type: 'int', min: 0, max: 600, pub: true, desc: 'Minutes after the deadline before a report is LATE. Keep at 0 for a hard cut-off at the deadline.' },
     WORKING_DAYS: { def: ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'], type: 'days', pub: true, desc: 'Days on which reports are expected' },
     HOLIDAYS: { def: [], type: 'holidays', pub: true, desc: 'Holiday calendar (JSON list of {date, name})' },
-    LOCK_AFTER_DEADLINE: { def: false, type: 'bool', pub: true, desc: 'Block submissions after deadline + grace (admin can reopen)' },
+    LOCK_AFTER_DEADLINE: { def: true, type: 'bool', pub: true, desc: 'Block submissions after deadline + grace (admin can reopen)' },
     BACKDATE_DAYS_ALLOWED: { def: 1, type: 'int', min: 0, max: 7, pub: true, desc: 'How many past days an employee may still report for' },
     CARRY_FORWARD_ENABLED: { def: true, type: 'bool', pub: true, desc: 'Show unfinished work from previous days' },
     AUTO_FOLLOWUP_FOR_BLOCKERS: { def: true, type: 'bool', pub: false, desc: 'Create follow-ups automatically for reported blockers' },
@@ -223,5 +223,14 @@ function nextWorkingDay(date, s) {
 function reportDeadline(date, s) {
   const deadline = Utilities.parseDate(date + ' ' + s.REPORT_DEADLINE, s.TIMEZONE, 'yyyy-MM-dd HH:mm');
   const graceEnd = new Date(deadline.getTime() + num(s.GRACE_PERIOD_MINUTES) * 60000);
-  return { deadline: deadline.toISOString(), graceEnd: graceEnd.toISOString(), graceMinutes: num(s.GRACE_PERIOD_MINUTES), time: s.REPORT_DEADLINE };
+  return {
+    deadline: deadline.toISOString(),
+    graceEnd: graceEnd.toISOString(),
+    graceMinutes: num(s.GRACE_PERIOD_MINUTES),
+    time: s.REPORT_DEADLINE,
+    // The browser needs to know whether the window actually shuts, so it can close the form
+    // at the same moment the server stops accepting it instead of failing on the Submit press.
+    locks: !!s.LOCK_AFTER_DEADLINE,
+    closesAt: s.LOCK_AFTER_DEADLINE ? graceEnd.toISOString() : ''
+  };
 }

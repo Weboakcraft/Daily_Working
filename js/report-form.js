@@ -27,6 +27,23 @@ const KNOWN_SECTIONS = STEP_DEFS.flatMap((s) => s.sections || []);
 
 let S = null;
 
+/**
+ * The deadline is decided by the server, so every comparison against it uses server time.
+ * A phone with a clock a few minutes out would otherwise be told the window is still open
+ * when it has closed, and lose whatever was typed after that.
+ */
+function serverNow() { return Date.now() - (S && S.clockSkew ? S.clockSkew : 0); }
+function teardown() {
+  window.removeEventListener('online', onOnline);
+  document.removeEventListener('visibilitychange', onVisibility);
+  window.removeEventListener('pagehide', onHide);
+}
+function closesAtMs() {
+  const d = S && S.data && S.data.deadline;
+  return d && d.closesAt ? new Date(d.closesAt).getTime() : 0;
+}
+function windowClosed() { const t = closesAtMs(); return !!t && serverNow() >= t; }
+
 const backupKey = () => 'oc.draft.' + S.ctx.user.id + '.' + S.date;
 function writeBackup() {
   try { localStorage.setItem(backupKey(), JSON.stringify({ at: new Date().toISOString(), v: S.version, answers: S.answers, tasks: S.tasks.map(stripTask) })); } catch (e) { /* storage full or disabled */ }
@@ -66,7 +83,8 @@ export async function renderReportForm(ctx, args) {
   if (!ctx.isCurrent()) return;
   S = {
     ctx, date: data.date, data, answers: {}, tasks: [], carry: data.carryForward.slice(), step: 0, steps: [],
-    version: 0, savedVersion: 0, saving: false, savePromise: null, pendingSave: false, timer: null,
+    clockSkew: data.serverTime ? Date.now() - new Date(data.serverTime).getTime() : 0,
+    version: 0, savedVersion: 0, saving: false, savePromise: null, pendingSave: false, timer: null, closeTimers: [],
     saveState: data.report.lastSavedAt ? { kind: 'saved', at: data.report.lastSavedAt } : { kind: 'idle' },
     fieldErrors: {}, taskErrors: {}, submitRequestId: null, submitted: false, openTasks: {}
   };
@@ -81,6 +99,7 @@ export async function renderReportForm(ctx, args) {
   const isSubmitted = data.report.status === 'SUBMITTED' || data.report.status === 'LATE';
   if (isSubmitted) { renderAlreadySubmitted(); return; }
   if (!data.canEdit) { renderLocked(); return; }
+  if (windowClosed()) { renderLocked('The reporting window for ' + fmtDate(S.date) + ' closed at ' + fmtHm(data.deadline.time) + '. Ask the admin to reopen it if you still need to report.'); return; }
 
   const backup = readBackup();
   const serverAt = data.report.lastSavedAt ? new Date(data.report.lastSavedAt).getTime() : 0;
@@ -97,11 +116,25 @@ export async function renderReportForm(ctx, args) {
   guard.dirty = isDirty;
   setLeaveGuard(guard);
   window.addEventListener('online', onOnline);
+  document.addEventListener('visibilitychange', onVisibility);
+  window.addEventListener('pagehide', onHide);
   renderShell();
 }
 
 function isDirty() { return !!S && !S.submitted && S.version !== S.savedVersion; }
 function onOnline() { if (S && isDirty()) saveNow(); }
+
+/**
+ * Drafts now wait longer between saves, so the moments a person actually walks away matter more:
+ * switching apps on a phone, locking the screen, or closing the tab all save what is pending.
+ */
+function onHide() { if (S && !S.submitted && !S.locked && isDirty()) saveNow(); }
+function onVisibility() {
+  if (!S || S.submitted) return;
+  if (document.visibilityState === 'hidden') { onHide(); return; }
+  // Back from the background: the countdown may have run out while the timers were frozen.
+  if (windowClosed()) lockForm(); else scheduleClose();
+}
 
 // ============================ Change tracking & saving ============================
 
@@ -110,7 +143,22 @@ export function markChanged(opts) {
   writeBackup();
   if (!(opts && opts.silent)) setSaveState({ kind: 'pending' });
   clearTimeout(S.timer);
-  S.timer = setTimeout(saveNow, CONFIG.AUTOSAVE_DELAY_MS);
+  const closesIn = closesAtMs() ? closesAtMs() - serverNow() : Infinity;
+  // Near the cut-off, save sooner so nothing typed in the last minute is left only on the device.
+  const delay = Math.max(1200, Math.min(autosaveDelay(), closesIn - 5000));
+  S.timer = setTimeout(saveNow, delay);
+}
+
+/**
+ * A floor under the autosave interval.
+ *
+ * Saving a draft every couple of seconds is what jammed the one write lock the whole system
+ * shares, and js/config.js is the file most likely to be left behind by a deployment — so the
+ * floor lives here rather than only in that file. Raising AUTOSAVE_DELAY_MS still works; lowering
+ * it back into the range that broke things does not.
+ */
+function autosaveDelay() {
+  return Math.max(15000, Number(CONFIG.AUTOSAVE_DELAY_MS) || 20000);
 }
 
 async function flushSave() {
@@ -125,6 +173,7 @@ function applyIdMap(idMap) {
 
 async function saveNow() {
   if (!S || S.submitted || !S.data.canEdit) return;
+  if (windowClosed()) { lockForm(); return; }
   if (S.saving) { S.pendingSave = true; return S.savePromise; }
   if (S.version === S.savedVersion) return;
   const v = S.version;
@@ -236,13 +285,15 @@ async function submit(btn) {
     toast('Some answers need attention before you can submit.', 'bad');
     return;
   }
-  const late = Date.now() > new Date(S.data.deadline.graceEnd).getTime();
+  if (windowClosed()) { lockForm(); return; }
+  const late = serverNow() > new Date(S.data.deadline.graceEnd).getTime();
   const ok = await confirmDialog({
     title: 'Submit this report?',
     message: (late ? 'The deadline has passed, so this report will be marked as late. ' : '') + 'After submitting you cannot change it unless the admin reopens it.',
     confirmText: 'Submit report'
   });
   if (!ok) return;
+  if (windowClosed()) { lockForm(); return; }
   await withBusy(btn, async () => {
     clearTimeout(S.timer);
     if (S.saving && S.savePromise) await S.savePromise;
@@ -252,7 +303,7 @@ async function submit(btn) {
       S.submitted = true;
       clearBackup();
       setLeaveGuard(null);
-      window.removeEventListener('online', onOnline);
+      teardown();
       renderReceipt(res.receipt, res.alreadySubmitted);
     } catch (e) {
       if (e instanceof ApiError && e.code === 'VALIDATION') {
@@ -263,6 +314,10 @@ async function submit(btn) {
       } else if (e instanceof ApiError && e.isNetwork) {
         writeBackup();
         toast('Not submitted yet: the connection failed. Your answers are kept on this device. Press Submit again when you are back online.', 'bad');
+      } else if (e instanceof ApiError && e.code === 'REPORT_LOCKED') {
+        S.submitRequestId = null;
+        toast(e.message, 'bad');
+        lockForm();
       } else {
         S.submitRequestId = null;
         toast(errorMessage(e), 'bad');
@@ -284,15 +339,65 @@ function goToFirstError() {
 // ============================ Views ============================
 
 function deadlineText() {
-  const d = S.data.deadline, now = Date.now();
+  const d = S.data.deadline, now = serverNow();
   const dl = new Date(d.deadline).getTime(), ge = new Date(d.graceEnd).getTime();
+  const close = closesAtMs();
   const isToday = S.date === S.data.today;
+  const left = function (ms) {
+    const mins = Math.max(0, Math.ceil(ms / 60000));
+    if (mins > 90) return Math.round(mins / 60) + ' hours';
+    if (mins > 1) return mins + ' minutes';
+    return 'less than a minute';
+  };
+
+  if (close) {
+    // Hard cut-off: after this moment the server refuses the report, so say so plainly.
+    if (!isToday) return { cls: 'past', text: 'The reporting window for ' + fmtDate(S.date) + ' is closed.' };
+    if (now >= close) return { cls: 'past', text: 'Reporting closed at ' + fmtHm(d.time) + '. This report can no longer be submitted.' };
+    const ms = close - now;
+    const cls = ms <= 30 * 60000 ? 'soon' : '';
+    return { cls: cls, text: 'Submit by ' + fmtHm(d.time) + ' — ' + left(ms) + ' left. After that the form closes.' };
+  }
+
   if (!isToday) return { cls: 'past', text: 'Report for ' + fmtDate(S.date) + '. The deadline for that day has passed, so it will be marked late.' };
   if (now > ge) return { cls: 'past', text: 'The deadline (' + fmtHm(d.time) + ') has passed. Your report will be marked late.' };
   if (now > dl) return { cls: 'past', text: 'Deadline passed at ' + fmtHm(d.time) + '. Submit before ' + fmtTime(d.graceEnd) + ' to avoid a late mark.' };
   const mins = Math.round((dl - now) / 60000);
   if (mins <= 60) return { cls: 'soon', text: 'Due by ' + fmtHm(d.time) + ', in ' + mins + ' min' };
   return { cls: '', text: 'Due by ' + fmtHm(d.time) };
+}
+
+/** Stops editing at the moment the server stops accepting, and keeps whatever was saved. */
+function lockForm() {
+  if (!S || S.submitted || S.locked) return;
+  S.locked = true;
+  clearTimeout(S.timer);
+  clearInterval(S.deadlineTimer);
+  (S.closeTimers || []).forEach(clearTimeout);
+  S.closeTimers = [];
+  S.data.canEdit = false;
+  teardown();
+  setLeaveGuard(null);
+  renderLocked('Reporting closed at ' + fmtHm(S.data.deadline.time) + '. Everything saved before then is kept; anything typed after it was not sent. Ask the admin to reopen the report if you still need to submit.');
+}
+
+/**
+ * Counts down to the cut-off: a last save just before it, then the form closes on the minute.
+ * setTimeout alone is unreliable on a phone that sleeps, so the ticker re-checks as well.
+ */
+function scheduleClose() {
+  (S.closeTimers || []).forEach(clearTimeout);
+  S.closeTimers = [];
+  const close = closesAtMs();
+  if (!close) return;
+  const ms = close - serverNow();
+  if (ms <= 0) { lockForm(); return; }
+  if (ms > 12000) {
+    S.closeTimers.push(setTimeout(() => {
+      if (S && !S.submitted && !S.locked && isDirty()) saveNow();
+    }, ms - 8000));
+  }
+  if (ms < 24 * 3600000) S.closeTimers.push(setTimeout(lockForm, ms + 500));
 }
 
 function renderShell() {
@@ -330,10 +435,12 @@ function renderShell() {
   S.deadlineTimer = setInterval(() => {
     const el = $('[data-deadline]');
     if (!el || !S || S.submitted) { clearInterval(S && S.deadlineTimer); return; }
+    if (windowClosed()) { lockForm(); return; }
     const t = deadlineText();
     el.className = 'deadline ' + t.cls;
     el.lastChild.textContent = ' ' + t.text;
-  }, 30000);
+  }, 10000);
+  scheduleClose();
 }
 
 function sectionTitle(st) {
@@ -464,10 +571,10 @@ function renderAlreadySubmitted() {
   bindWhatsAppButton(ctx.content.querySelector('[data-whatsapp]'), () => api('getReport', { reportId: data.report.reportId }), ctx.settings.COMPANY_NAME);
 }
 
-function renderLocked() {
+function renderLocked(reason) {
   const { ctx, data } = S;
   setLeaveGuard(null);
-  setHTML(ctx.content, html`${ctx.head("Today's report")}<div class="banner warn">${icon('alert')}<span class="banner-body">${data.lockedReason}</span></div>
+  setHTML(ctx.content, html`${ctx.head("Today's report")}<div class="banner warn">${icon('alert')}<span class="banner-body">${reason || data.lockedReason}</span></div>
     ${data.report.reportId ? html`<a class="btn" href="reports.html#view/${data.report.reportId}">View saved draft</a>` : ''}`);
 }
 

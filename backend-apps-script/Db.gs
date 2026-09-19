@@ -130,6 +130,50 @@ const Db = (function () {
     return rows;
   }
 
+  /**
+   * Reads specific row numbers with as few Sheets calls as possible.
+   *
+   * Rows belonging to one report are written together, so they sit in a handful of runs. Those
+   * runs are read whole; if a query somehow matches rows scattered right across the sheet, the
+   * widest gaps are bridged until the read fits in MAX_BLOCKS calls. Either way the sheet is
+   * never read in full, which is what used to happen once a query matched more than 40 rows —
+   * on a Tasks tab holding a year of work that single fallback was several seconds on its own.
+   */
+  const MAX_BLOCKS = 12;
+  function readRows(name, h, sh, rowNums) {
+    const rows = uniq(rowNums.map(Number)).map(Number).filter(function (r) { return r > 1; })
+      .sort(function (a, b) { return a - b; });
+    if (!rows.length) return [];
+    const wanted = {};
+    rows.forEach(function (r) { wanted[r] = true; });
+
+    const blocks = [];
+    rows.forEach(function (r) {
+      const last = blocks[blocks.length - 1];
+      if (last && r === last.end + 1) last.end = r; else blocks.push({ start: r, end: r });
+    });
+    while (blocks.length > MAX_BLOCKS) {
+      let at = 0, best = Infinity;
+      for (let i = 0; i + 1 < blocks.length; i++) {
+        const gap = blocks[i + 1].start - blocks[i].end;
+        if (gap < best) { best = gap; at = i; }
+      }
+      blocks[at].end = blocks[at + 1].end;
+      blocks.splice(at + 1, 1);
+    }
+
+    const width = h.list.length;
+    const out = [];
+    blocks.forEach(function (b) {
+      const values = sh.getRange(b.start, 1, b.end - b.start + 1, width).getValues();
+      values.forEach(function (row, i) {
+        const rowNum = b.start + i;
+        if (wanted[rowNum]) out.push(toObj(name, h, row, rowNum));
+      });
+    });
+    return out;
+  }
+
   /** Rows whose column exactly equals value (TextFinder based). */
   function findBy(name, col, value) {
     if (value === '' || value === null || value === undefined) return [];
@@ -144,12 +188,8 @@ const Db = (function () {
     const cells = sh.getRange(2, h.map[col] + 1, lr - 1, 1)
       .createTextFinder(target).matchEntireCell(true).matchCase(true).findAll();
     if (!cells.length) return [];
-    if (cells.length > 40) return readAll(name).filter(function (r) { return String(r[col]) === target; });
-    const width = h.list.length;
-    return cells.map(function (c) {
-      const r = c.getRow();
-      return toObj(name, h, sh.getRange(r, 1, 1, width).getValues()[0], r);
-    }).filter(function (o) { return String(o[col]) === target; });
+    return readRows(name, h, sh, cells.map(function (c) { return c.getRow(); }))
+      .filter(function (o) { return String(o[col]) === target; });
   }
 
   function findOne(name, col, value) { return findBy(name, col, value)[0] || null; }

@@ -103,6 +103,93 @@ function refreshAppCache() {
   return msg;
 }
 
+/**
+ * One-time setting changes that must reach Sheets that were set up before the change.
+ *
+ * A default in settingDefs() only applies to a key that has no row yet, so changing a default
+ * never moves an existing installation. Each entry below is applied once, recorded in Script
+ * Properties by id, and then left alone — so an admin who later edits the value in the app keeps
+ * their choice. Add a new entry with a new id; never edit an id that has already shipped.
+ */
+function settingMigrations() {
+  return [
+    {
+      id: '2026-09-report-window-2115',
+      note: 'Reporting window closes at 21:15 with no grace period',
+      values: { REPORT_DEADLINE: '21:15', GRACE_PERIOD_MINUTES: 0, LOCK_AFTER_DEADLINE: true }
+    }
+  ];
+}
+
+/** Applies any setting migration that has not run on this Sheet yet. Caller holds the script lock. */
+function applySettingMigrations(log) {
+  log = log || [];
+  const props = PropertiesService.getScriptProperties();
+  const done = parseJson(props.getProperty('SETTING_MIGRATIONS'), []) || [];
+  const rows = indexBy(Db.readAll('Settings'), 'SettingKey');
+  const defs = settingDefs();
+  const now = nowIso();
+  const upd = [], ins = [];
+  let ran = 0;
+
+  settingMigrations().forEach(function (m) {
+    if (done.indexOf(m.id) >= 0) return;
+    Object.keys(m.values).forEach(function (k) {
+      if (!defs[k]) return;
+      const v = m.values[k];
+      const stored = typeof v === 'object' ? JSON.stringify(v) : String(v);
+      if (rows[k]) {
+        if (String(rows[k].SettingValue) === stored) return;
+        rows[k].SettingValue = stored;
+        rows[k].UpdatedAt = now;
+        upd.push(rows[k]);
+      } else {
+        ins.push({ SettingKey: k, SettingValue: stored, Description: defs[k].desc, UpdatedAt: now });
+      }
+    });
+    done.push(m.id);
+    ran++;
+    log.push('Applied setting change: ' + m.note);
+  });
+
+  if (upd.length) Db.update('Settings', upd);
+  if (ins.length) Db.insert('Settings', ins);
+  if (ran) {
+    props.setProperty('SETTING_MIGRATIONS', JSON.stringify(done));
+    Db.invalidate('Settings');
+    SETTINGS_MEMO = null;
+  }
+  return ran;
+}
+
+/** Menu action: force the current reporting window onto this Sheet, whatever it holds now. */
+function applyReportingWindow() {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  let s;
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const done = parseJson(props.getProperty('SETTING_MIGRATIONS'), []) || [];
+    props.setProperty('SETTING_MIGRATIONS', JSON.stringify(done.filter(function (id) {
+      return id !== '2026-09-report-window-2115';
+    })));
+    Db.resetMemo();
+    SETTINGS_MEMO = null;
+    applySettingMigrations([]);
+    Db.resetMemo();
+    SETTINGS_MEMO = null;
+    s = getSettingsMap();
+  } finally {
+    lock.releaseLock();
+  }
+  const msg = 'Reports are now accepted until ' + s.REPORT_DEADLINE +
+    (num(s.GRACE_PERIOD_MINUTES) ? ' plus ' + s.GRACE_PERIOD_MINUTES + ' minutes of grace' : ' with no grace period') +
+    '. After that the form is closed' + (s.LOCK_AFTER_DEADLINE ? ' and only an admin reopen can accept a report.' : '.');
+  Logger.log(msg);
+  try { SpreadsheetApp.getUi().alert(msg); } catch (e) { /* editor */ }
+  return msg;
+}
+
 function setupOakcraftSystem() {
   const props = PropertiesService.getScriptProperties();
   let ss = null;
@@ -153,6 +240,9 @@ function setupOakcraftSystem() {
     });
     Db.insert('Settings', newSettings);
     if (newSettings.length) log.push('Added ' + newSettings.length + ' default settings');
+
+    // One-time setting migrations (see SETTING_MIGRATIONS below).
+    applySettingMigrations(log);
 
     // Departments
     const depts = Db.readAll('Departments');

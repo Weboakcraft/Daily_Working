@@ -5,6 +5,8 @@
 import { api, getToken, setToken, clearToken, clearApiCache, clearStoredCache } from './api.js';
 
 const ME_KEY = 'oc.me';
+/* Remembered landing page, so index.html can redirect without first asking the server who you are. */
+const HOME_KEY = 'oc.home';
 /* Served straight from cache for this long, then refreshed quietly in the background. */
 const ME_TTL_MS = 20 * 60 * 1000;
 const ME_MAX_AGE_MS = 8 * 60 * 60 * 1000;
@@ -12,11 +14,24 @@ const SAFE_NEXT = /^(index|dashboard|reports|employee|admin)\.html(#[A-Za-z0-9/_
 
 export function hasToken() { return !!getToken(); }
 
+/** The page this person landed on last time, if it is still a page we would send them to. */
+export function homeHint() {
+  try {
+    const v = localStorage.getItem(HOME_KEY) || '';
+    return v === 'login.html#change' || SAFE_NEXT.test(v) ? v : '';
+  } catch (e) { return ''; }
+}
+function setHomeHint(user) {
+  try { localStorage.setItem(HOME_KEY, user && user.mustChangePassword ? 'login.html#change' : homeFor(user)); } catch (e) { /* private mode */ }
+}
+function clearHomeHint() { try { localStorage.removeItem(HOME_KEY); } catch (e) { /* ignore */ } }
+
 export async function login(username, password) {
   const data = await api('login', { username, password }, { retries: 0 });
   setToken(data.token);
   clearStoredCache();
   forgetSession();
+  setHomeHint(data.user);
   return data;
 }
 
@@ -24,6 +39,7 @@ export async function logout() {
   try { if (getToken()) await api('logout', {}, { retries: 0 }); } catch (e) { /* token may already be invalid */ }
   clearToken();
   clearStoredCache();
+  clearHomeHint();
   forgetSession();
   location.href = 'login.html';
 }
@@ -49,6 +65,7 @@ function readCachedMe() {
 }
 function writeCachedMe(data) {
   try { sessionStorage.setItem(ME_KEY, JSON.stringify({ at: Date.now(), data })); } catch (e) { /* ignore */ }
+  if (data && data.user) setHomeHint(data.user);
 }
 
 async function fetchMe() {

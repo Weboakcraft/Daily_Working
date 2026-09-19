@@ -19,13 +19,23 @@
   </main>
   <script type="module" src="js/prefetch.js"></script>
   <script type="module">
-    import { isConfigured } from './js/api.js';
-    import { loadSession, homeFor } from './js/auth.js';
+    /*
+     * This page only decides where to send you. It used to wait for a round-trip to Apps Script
+     * first — about a second and a half of blank screen — and then the page it redirected to
+     * asked the very same question again. Now it redirects straight away using the landing page
+     * remembered from last time; the page it opens verifies the session and bounces to the login
+     * screen itself if the token has gone stale.
+     */
+    import { isConfigured, getToken } from './js/api.js';
+    import { loadSession, homeFor, homeHint } from './js/auth.js';
     import { renderSetupRequired } from './js/app.js';
     (async () => {
       if (!isConfigured()) { renderSetupRequired(); return; }
+      if (!getToken()) { location.replace('login.html'); return; }
+      const hint = homeHint();
+      if (hint) { location.replace(hint); return; }
       try {
-        const s = await loadSession(true);
+        const s = await loadSession(false);
         if (!s) { location.replace('login.html'); return; }
         location.replace(s.user.mustChangePassword ? 'login.html#change' : homeFor(s.user));
       } catch (e) {

@@ -44,11 +44,18 @@ function validateReportDate(date, s) {
     s.BACKDATE_DAYS_ALLOWED ? 'You can only report for the last ' + s.BACKDATE_DAYS_ALLOWED + ' day(s).' : 'You can only report for today.');
 }
 
-function editability(report, date, s, dept) {
+/**
+ * @param {Date} [at] the moment to judge the deadline by. A save is judged by when the request
+ *   arrived, not by when the shared write lock finally came free, so a queue at 21:14 can never
+ *   turn an on-time report into a rejected one.
+ */
+function editability(report, date, s, dept, at) {
   if (dept && dept.Status !== 'Active') return { canEdit: false, reason: 'Your department is inactive. Contact the admin.' };
   if (report && isSubmittedStatus(report.Status)) return { canEdit: false, reason: 'This report has already been submitted.' };
-  if (s.LOCK_AFTER_DEADLINE && (!report || report.Status !== REPORT_STATUS.REOPENED) && new Date() > new Date(reportDeadline(date, s).graceEnd)) {
-    return { canEdit: false, reason: 'The reporting window for this date has closed. Ask the admin to reopen it.' };
+  if (s.LOCK_AFTER_DEADLINE && (!report || report.Status !== REPORT_STATUS.REOPENED) && (at || new Date()) > new Date(reportDeadline(date, s).graceEnd)) {
+    const closed = 'Reporting for ' + humanDate(date) + ' closed at ' + s.REPORT_DEADLINE +
+      (num(s.GRACE_PERIOD_MINUTES) ? ' plus ' + s.GRACE_PERIOD_MINUTES + ' minutes' : '') + '. Ask the admin to reopen it.';
+    return { canEdit: false, reason: closed };
   }
   return { canEdit: true, reason: '' };
 }
@@ -207,135 +214,145 @@ function saveReportInternal(user, p, submit) {
   const emp = getEmployeeOrThrow(user.id);
   assert(emp.Status === 'Active', 'FORBIDDEN', 'Inactive employees cannot submit reports.');
 
-  const result = Db.withLock(function () {
-    let report = findReport(emp.EmployeeID, date);
-    const deptId = report ? report.DepartmentID : emp.DepartmentID;
-    const dept = getDepartment(deptId);
-    assert(dept, 'VALIDATION', 'Your department is not configured. Contact the admin.');
+  /*
+   * Everything below up to `Db.withLock` only reads and decides. The lock is the one the whole
+   * script shares — every save by every person queues on it — so it used to be held while the
+   * questions, the existing answers and the existing tasks were all fetched and validated, one to
+   * three seconds at a time. With a hundred people writing their reports in the same hour the
+   * queue never emptied and saves came back as "the system is busy". Now the work is done first
+   * and the lock covers only the writes, which is a few hundred milliseconds.
+   */
+  const arrivedAt = new Date();
+  const now = arrivedAt.toISOString();
 
-    if (report && isSubmittedStatus(report.Status)) {
-      if (submit) return { alreadySubmitted: true, report: report, dept: dept, created: false, followUps: [] };
-      throw appError('REPORT_LOCKED', 'This report has already been submitted.');
+  let report = findReport(emp.EmployeeID, date);
+  const created = !report;
+  const deptId = report ? report.DepartmentID : emp.DepartmentID;
+  const dept = getDepartment(deptId);
+  assert(dept, 'VALIDATION', 'Your department is not configured. Contact the admin.');
+
+  if (report && isSubmittedStatus(report.Status)) {
+    if (!submit) throw appError('REPORT_LOCKED', 'This report has already been submitted.');
+    return { alreadySubmitted: true, report: publicReport(report), receipt: buildReceipt(report, emp, dept) };
+  }
+  const ed = editability(report, date, s, dept, arrivedAt);
+  assert(ed.canEdit, 'REPORT_LOCKED', ed.reason);
+
+  const questions = questionsForDepartment(deptId, false);
+  const qMap = indexBy(questions, 'QuestionID');
+  const answers = normalizeAnswers(p.responses || {}, qMap);
+  const taskInputs = normalizeTasks(p.tasks || [], submit);
+  if (submit) validateRequiredAnswers(questions, answers);
+
+  if (!report) {
+    report = {
+      ReportID: newId('RPT'), UniqueKey: emp.EmployeeID + '|' + date, EmployeeID: emp.EmployeeID, DepartmentID: deptId,
+      ReportDate: date, Status: REPORT_STATUS.DRAFT, StartedAt: now, ManagerID: emp.ManagerID || dept.ManagerID || '',
+      ReviewStatus: 'NOT REVIEWED', LateFlag: false, HasBlocker: false, IsDemo: false, CreatedAt: now, UpdatedAt: now
+    };
+  }
+
+  // --- Responses (upsert) ---
+  const existingResp = created ? [] : Db.findBy('Responses', 'ReportID', report.ReportID);
+  const respByQ = indexBy(existingResp, 'QuestionID');
+  const rIns = [], rUpd = [];
+  Object.keys(answers).forEach(function (qid) {
+    const a = answers[qid], ex = respByQ[qid];
+    if (ex) {
+      if (ex.Answer !== a.stored) { ex.Answer = a.stored; ex.QuestionText = qMap[qid].QuestionText; ex.UpdatedAt = now; rUpd.push(ex); }
+    } else if (a.stored !== '') {
+      rIns.push({
+        ResponseID: newId('RSP'), ReportID: report.ReportID, QuestionID: qid, EmployeeID: emp.EmployeeID, DepartmentID: deptId,
+        ReportDate: date, QuestionText: qMap[qid].QuestionText, Answer: a.stored, IsDemo: false, CreatedAt: now, UpdatedAt: now
+      });
     }
-    const ed = editability(report, date, s, dept);
-    assert(ed.canEdit, 'REPORT_LOCKED', ed.reason);
+  });
 
-    const questions = questionsForDepartment(deptId, false);
-    const qMap = indexBy(questions, 'QuestionID');
-    const answers = normalizeAnswers(p.responses || {}, qMap);
-    const taskInputs = normalizeTasks(p.tasks || [], submit);
-    if (submit) validateRequiredAnswers(questions, answers);
-
-    const now = nowIso();
-    let created = false;
-    if (!report) {
-      report = {
-        ReportID: newId('RPT'), UniqueKey: emp.EmployeeID + '|' + date, EmployeeID: emp.EmployeeID, DepartmentID: deptId,
-        ReportDate: date, Status: REPORT_STATUS.DRAFT, StartedAt: now, ManagerID: emp.ManagerID || dept.ManagerID || '',
-        ReviewStatus: 'NOT REVIEWED', LateFlag: false, HasBlocker: false, IsDemo: false, CreatedAt: now, UpdatedAt: now
+  // --- Tasks (upsert + soft delete) ---
+  const existingTasks = created ? [] : Db.findBy('Tasks', 'ReportID', report.ReportID);
+  const exById = indexBy(existingTasks, 'TaskID');
+  const keep = {}, idMap = {}, tIns = [], tUpd = [], srcUpd = {};
+  const active = [];
+  taskInputs.forEach(function (t, i) {
+    let row = t.taskId ? exById[t.taskId] : null;
+    if (row && !bool(row.Deleted) && !keep[row.TaskID]) {
+      if (applyTaskFields(row, t, i, now)) tUpd.push(row);
+    } else {
+      row = {
+        TaskID: newId('TSK'), ReportID: report.ReportID, EmployeeID: emp.EmployeeID, DepartmentID: deptId, ReportDate: date,
+        SourceTaskID: '', CarriedToTaskID: '', CarryCount: 0, Deleted: false, IsDemo: false, CreatedAt: now, UpdatedAt: now
       };
-      Db.insert('Reports', [report]);
-      created = true;
-    }
-
-    // --- Responses (upsert) ---
-    const existingResp = created ? [] : Db.findBy('Responses', 'ReportID', report.ReportID);
-    const respByQ = indexBy(existingResp, 'QuestionID');
-    const rIns = [], rUpd = [];
-    Object.keys(answers).forEach(function (qid) {
-      const a = answers[qid], ex = respByQ[qid];
-      if (ex) {
-        if (ex.Answer !== a.stored) { ex.Answer = a.stored; ex.QuestionText = qMap[qid].QuestionText; ex.UpdatedAt = now; rUpd.push(ex); }
-      } else if (a.stored !== '') {
-        rIns.push({
-          ResponseID: newId('RSP'), ReportID: report.ReportID, QuestionID: qid, EmployeeID: emp.EmployeeID, DepartmentID: deptId,
-          ReportDate: date, QuestionText: qMap[qid].QuestionText, Answer: a.stored, IsDemo: false, CreatedAt: now, UpdatedAt: now
-        });
-      }
-    });
-
-    // --- Tasks (upsert + soft delete) ---
-    const existingTasks = created ? [] : Db.findBy('Tasks', 'ReportID', report.ReportID);
-    const exById = indexBy(existingTasks, 'TaskID');
-    const keep = {}, idMap = {}, tIns = [], tUpd = [], srcUpd = {};
-    const active = [];
-    taskInputs.forEach(function (t, i) {
-      let row = t.taskId ? exById[t.taskId] : null;
-      if (row && !bool(row.Deleted) && !keep[row.TaskID]) {
-        if (applyTaskFields(row, t, i, now)) tUpd.push(row);
-      } else {
-        row = {
-          TaskID: newId('TSK'), ReportID: report.ReportID, EmployeeID: emp.EmployeeID, DepartmentID: deptId, ReportDate: date,
-          SourceTaskID: '', CarriedToTaskID: '', CarryCount: 0, Deleted: false, IsDemo: false, CreatedAt: now, UpdatedAt: now
-        };
-        applyTaskFields(row, t, i, now);
-        if (t.sourceTaskId) {
-          const src = Db.findOne('Tasks', 'TaskID', t.sourceTaskId);
-          if (src && src.EmployeeID === emp.EmployeeID && src.ReportDate < date && !src.CarriedToTaskID &&
-              !bool(src.Deleted) && OPEN_TASK_STATUSES.indexOf(src.Status) >= 0) {
-            row.SourceTaskID = src.TaskID;
-            row.CarryCount = num(src.CarryCount) + 1;
-            src.CarriedToTaskID = row.TaskID;
-            src.UpdatedAt = now;
-            srcUpd[src.TaskID] = src;
-          }
+      applyTaskFields(row, t, i, now);
+      if (t.sourceTaskId) {
+        const src = Db.findOne('Tasks', 'TaskID', t.sourceTaskId);
+        if (src && src.EmployeeID === emp.EmployeeID && src.ReportDate < date && !src.CarriedToTaskID &&
+            !bool(src.Deleted) && OPEN_TASK_STATUSES.indexOf(src.Status) >= 0) {
+          row.SourceTaskID = src.TaskID;
+          row.CarryCount = num(src.CarryCount) + 1;
+          src.CarriedToTaskID = row.TaskID;
+          src.UpdatedAt = now;
+          srcUpd[src.TaskID] = src;
         }
-        tIns.push(row);
       }
-      keep[row.TaskID] = true;
-      active.push(row);
-      if (t.clientKey) idMap[t.clientKey] = row.TaskID;
-    });
-    existingTasks.forEach(function (row) {
-      if (keep[row.TaskID] || bool(row.Deleted)) return;
-      row.Deleted = true; row.UpdatedAt = now; tUpd.push(row);
-      if (row.SourceTaskID) {
-        const src = Db.findOne('Tasks', 'TaskID', row.SourceTaskID);
-        if (src && src.CarriedToTaskID === row.TaskID) { src.CarriedToTaskID = ''; src.UpdatedAt = now; srcUpd[src.TaskID] = src; }
-      }
-    });
-
-    // --- Report aggregates & status ---
-    const agg = applyAggregates(report, active);
-    const flagQ = questions.filter(function (q) { return q.QuestionKey === 'COMMON_BLOCKER_FLAG'; })[0];
-    report.HasBlocker = !!(flagQ && answers[flagQ.QuestionID] && answers[flagQ.QuestionID].stored === 'Yes') || agg.blocked > 0;
-    report.LastSavedAt = now;
-    report.UpdatedAt = now;
-    let followUps = [];
-    if (submit) {
-      const late = new Date(now) > new Date(reportDeadline(date, s).graceEnd);
-      if (!report.FirstSubmittedAt) { report.FirstSubmittedAt = now; report.LateFlag = late; }
-      report.Status = bool(report.LateFlag) ? REPORT_STATUS.LATE : REPORT_STATUS.SUBMITTED;
-      report.SubmittedAt = now;
-      if (s.AUTO_FOLLOWUP_FOR_BLOCKERS) followUps = buildAutoFollowUps(report, emp, questions, answers, active, s, now);
+      tIns.push(row);
     }
+    keep[row.TaskID] = true;
+    active.push(row);
+    if (t.clientKey) idMap[t.clientKey] = row.TaskID;
+  });
+  existingTasks.forEach(function (row) {
+    if (keep[row.TaskID] || bool(row.Deleted)) return;
+    row.Deleted = true; row.UpdatedAt = now; tUpd.push(row);
+    if (row.SourceTaskID) {
+      const src = srcUpd[row.SourceTaskID] || Db.findOne('Tasks', 'TaskID', row.SourceTaskID);
+      if (src && src.CarriedToTaskID === row.TaskID) { src.CarriedToTaskID = ''; src.UpdatedAt = now; srcUpd[src.TaskID] = src; }
+    }
+  });
 
+  // --- Report aggregates & status ---
+  const agg = applyAggregates(report, active);
+  const flagQ = questions.filter(function (q) { return q.QuestionKey === 'COMMON_BLOCKER_FLAG'; })[0];
+  report.HasBlocker = !!(flagQ && answers[flagQ.QuestionID] && answers[flagQ.QuestionID].stored === 'Yes') || agg.blocked > 0;
+  report.LastSavedAt = now;
+  report.UpdatedAt = now;
+  let followUps = [];
+  if (submit) {
+    const late = arrivedAt > new Date(reportDeadline(date, s).graceEnd);
+    if (!report.FirstSubmittedAt) { report.FirstSubmittedAt = now; report.LateFlag = late; }
+    report.Status = bool(report.LateFlag) ? REPORT_STATUS.LATE : REPORT_STATUS.SUBMITTED;
+    report.SubmittedAt = now;
+    if (s.AUTO_FOLLOWUP_FOR_BLOCKERS) followUps = buildAutoFollowUps(report, emp, questions, answers, active, s, now, created ? [] : null);
+  }
+
+  // --- The only part that needs the shared lock: the writes. ---
+  Db.withLock(function () {
+    if (created) {
+      // A second tab could have created today's report while this one was deciding what to write.
+      const race = findReport(emp.EmployeeID, date);
+      assert(!race, 'IN_PROGRESS', 'This report was being saved from somewhere else. Please try again.');
+      Db.insert('Reports', [report]);
+    }
     Db.update('Reports', [report]);
     Db.update('Responses', rUpd);
     Db.insert('Responses', rIns);
     Db.update('Tasks', tUpd.concat(Object.keys(srcUpd).map(function (k) { return srcUpd[k]; })));
     Db.insert('Tasks', tIns);
     Db.insert('FollowUps', followUps);
-    return { report: report, dept: dept, created: created, followUps: followUps, idMap: idMap, active: active };
   });
 
-  const report = result.report;
-  if (result.alreadySubmitted) {
-    return { alreadySubmitted: true, report: publicReport(report), receipt: buildReceipt(report, emp, result.dept) };
-  }
-  if (result.created) audit(user, 'REPORT_DRAFTED', 'Report', report.ReportID, '', { date: date });
+  if (created) audit(user, 'REPORT_DRAFTED', 'Report', report.ReportID, '', { date: date });
   const out = {
     report: publicReport(report),
-    tasks: result.active.map(publicTask),
-    idMap: result.idMap,
+    tasks: active.map(publicTask),
+    idMap: idMap,
     savedAt: report.LastSavedAt
   };
   if (submit) {
     audit(user, 'REPORT_SUBMITTED', 'Report', report.ReportID, '', { date: date, status: report.Status, tasks: num(report.TaskTotal), reopened: !!report.ReopenedAt });
-    out.receipt = buildReceipt(report, emp, result.dept);
+    out.receipt = buildReceipt(report, emp, dept);
     safeNotify(function () {
       if (report.Status === REPORT_STATUS.LATE) Notify.dispatch('LATE_REPORT', { report: report, employee: emp });
-      result.followUps.forEach(function (f) {
+      followUps.forEach(function (f) {
         Notify.dispatch(f.Source === 'BLOCKER' || f.Priority === 'URGENT' ? 'HIGH_PRIORITY_BLOCKER' : 'FOLLOWUP_ASSIGNED', { followUp: f, employee: emp, report: report });
       });
     });
@@ -343,8 +360,9 @@ function saveReportInternal(user, p, submit) {
   return out;
 }
 
-function buildAutoFollowUps(report, emp, questions, answers, tasks, s, now) {
-  const existing = Db.findBy('FollowUps', 'ReportID', report.ReportID);
+/** @param {Array} [existingFollowUps] already-read rows, so a brand-new report skips the lookup. */
+function buildAutoFollowUps(report, emp, questions, answers, tasks, s, now, existingFollowUps) {
+  const existing = existingFollowUps || Db.findBy('FollowUps', 'ReportID', report.ReportID);
   const has = function (source, taskId) { return existing.some(function (f) { return f.Source === source && String(f.TaskID) === String(taskId || ''); }); };
   const out = [];
   const base = {
