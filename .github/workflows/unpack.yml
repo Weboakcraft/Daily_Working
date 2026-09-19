@@ -8,8 +8,11 @@
 # Notes:
 #   - If the zip has a single top-level folder (for example oakcraft-daily-working-tracker/),
 #     its contents are placed at the repository root so index.html ends up at the top level.
-#   - A Web App URL already saved in js/config.js is kept; the placeholder from the zip does not overwrite it.
+#   - The Web App URL already saved in js/config.js is carried over into the uploaded file. Every
+#     other setting in that file (APP_VERSION, timeouts, autosave) comes from the zip.
 #   - Existing files with the same name are replaced; other files in the repository are left alone.
+#   - Anything under .github/workflows/ in the zip is ignored: GitHub does not let an Action update
+#     its own workflow files, and a zip containing one would make the push fail.
 #   - Archives containing absolute paths or ".." are refused.
 
 name: Unpack uploaded zip
@@ -67,18 +70,34 @@ jobs:
               echo "Using the contents of the top-level folder: $(basename "$src")"
             fi
 
-            keep_config=""
-            if [ -f js/config.js ] && ! grep -q "PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE" js/config.js; then
-              keep_config="$(mktemp)"
-              cp js/config.js "$keep_config"
+            # Carry over only the Web App URL, not the whole file. Keeping the whole file meant
+            # every other setting in js/config.js — the app version, the autosave interval, the
+            # request timeout — was silently thrown away on every upload, so those changes never
+            # reached anyone and nobody could see why.
+            keep_url=""
+            if [ -f js/config.js ]; then
+              keep_url="$(sed -n "s/.*APPS_SCRIPT_URL:[[:space:]]*'\([^']*\)'.*/\1/p" js/config.js | head -n1)"
+              case "$keep_url" in PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE*) keep_url="" ;; esac
             fi
 
             rm -rf "$src/.git"
+            # GITHUB_TOKEN is not allowed to create or update workflow files, so a zip that happens
+            # to carry a changed .github/workflows/*.yml makes the whole push fail — the unpack
+            # looks like it worked and then nothing lands. Workflow files are edited in the
+            # repository directly, never through an upload.
+            if [ -d "$src/.github/workflows" ]; then
+              echo "Ignoring .github/workflows in the zip (edit workflow files in the repository instead)"
+              rm -rf "$src/.github/workflows"
+            fi
             cp -a "$src"/. ./
 
-            if [ -n "$keep_config" ]; then
-              cp "$keep_config" js/config.js
-              echo "Kept the existing Web App URL in js/config.js"
+            if [ -n "$keep_url" ]; then
+              if [ -f js/config.js ] && grep -q "APPS_SCRIPT_URL:" js/config.js; then
+                sed -i "s|APPS_SCRIPT_URL:[[:space:]]*'[^']*'|APPS_SCRIPT_URL: '$keep_url'|" js/config.js
+                echo "Kept the existing Web App URL in js/config.js; every other setting came from the zip"
+              else
+                echo "::warning::The uploaded js/config.js has no APPS_SCRIPT_URL line. Paste the Web App URL in by hand."
+              fi
             fi
 
             rm -f "$zip"
