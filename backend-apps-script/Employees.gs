@@ -332,10 +332,11 @@ function apiResetPassword(p, user) {
       newPassword: policy
     }
   });
+  const mustChange = p.mustChange !== false && p.mustChange !== 'false';
   Db.withLock(function() {
     const e = getEmployeeOrThrow(id);
     const cred = Db.findOne('Credentials', 'EmployeeID', id);
-    const fresh = makeCredential(id, e.Username, String(p.newPassword), true);
+    const fresh = makeCredential(id, e.Username, String(p.newPassword), mustChange);
     if (cred) {
       fresh._row = cred._row;
       Db.update('Credentials', [ fresh ]);
@@ -345,10 +346,11 @@ function apiResetPassword(p, user) {
     revokeSessions(id);
   });
   audit(user, 'PASSWORD_RESET', 'Employee', id, '', {
-    mustChange: true
+    mustChange: mustChange
   });
   return {
-    reset: true
+    reset: true,
+    mustChange: mustChange
   };
 }
 
