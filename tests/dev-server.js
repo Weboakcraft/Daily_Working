@@ -42,7 +42,9 @@ const server = http.createServer((req, res) => {
     res.end(src);
     return;
   }
-  let file = path.normalize(path.join(ROOT, decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname)));
+  // Browsers ask for /favicon.ico on their own when showing a bare file such as an image.
+  const wanted = url.pathname === '/' ? '/index.html' : url.pathname === '/favicon.ico' ? '/assets/favicon.png' : url.pathname;
+  let file = path.normalize(path.join(ROOT, decodeURIComponent(wanted)));
   if (!file.startsWith(ROOT) || file.includes(`${path.sep}backend-apps-script${path.sep}`) || file.includes(`${path.sep}tests${path.sep}`)) { res.writeHead(403); res.end('Forbidden'); return; }
   fs.readFile(file, (err, data) => {
     if (err) { res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('Not found'); return; }

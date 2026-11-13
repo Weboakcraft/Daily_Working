@@ -331,8 +331,9 @@ function saveReportInternal(user, p, submit) {
       const race = findReport(emp.EmployeeID, date);
       assert(!race, 'IN_PROGRESS', 'This report was being saved from somewhere else. Please try again.');
       Db.insert('Reports', [report]);
+    } else {
+      Db.update('Reports', [report]);
     }
-    Db.update('Reports', [report]);
     Db.update('Responses', rUpd);
     Db.insert('Responses', rIns);
     Db.update('Tasks', tUpd.concat(Object.keys(srcUpd).map(function (k) { return srcUpd[k]; })));

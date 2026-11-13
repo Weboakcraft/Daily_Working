@@ -15,7 +15,7 @@ async function step(name, fn) {
   catch (e) { failures++; console.log('FAIL ' + name + '\n     ' + String(e && e.message || e).split('\n')[0]); }
 }
 function watch(page, errors) {
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text() + (m.location() && m.location().url ? ' [' + m.location().url + ']' : '')); });
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
 }
 async function login(page, user, pass) {
@@ -52,7 +52,7 @@ async function fillStep(page) {
 }
 
 (async () => {
-  const browser = await chromium.launch();
+  const browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH, args: ['--no-sandbox'] } : {});
 
   // ---------------- Employee on a phone ----------------
   const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
@@ -66,7 +66,8 @@ async function fillStep(page) {
     for (const user of ['demo.rohit', 'demo.kavya', 'demo.arjun', 'demo.sana', 'demo.vikas', 'demo.pooja', 'demo.imran', 'demo.deepak', 'demo.meera', 'demo.nikita', 'demo.harsh', 'demo.ritu']) {
       await login(p, user);
       await p.goto(BASE + '/employee.html#today');
-      await p.waitForSelector('[data-step-panel] h2, .page-head h1 >> text=report', { timeout: 15000 });
+      // An open form shows its sections; a submitted or closed one shows only a page heading.
+      await p.waitForSelector('[data-step-panel] h2, .form-top h1, .page-head h1', { timeout: 15000 });
       await p.waitForTimeout(300);
       if (await p.$('[data-step-panel] h2')) { console.log('     using ' + user); employeeUser = user; return; }
     }
@@ -80,17 +81,17 @@ async function fillStep(page) {
       await p.click('[data-act="next"]');
     }
     await p.waitForSelector('[data-new-task]');
+    // The task card is a name and a status; the status chosen while adding sticks for the next task.
+    await p.selectOption('[data-new-task-status]', 'IN PROGRESS');
     await p.fill('[data-new-task]', 'Site visit at Sharma Interiors, Noida');
     await p.press('[data-new-task]', 'Enter');
     const cards = await p.$$('[data-task-card]');
     const last = cards[cards.length - 1];
-    await (await last.$('[data-tact="toggle"]')).click();
     const key = await last.getAttribute('data-key');
-    await p.fill('#tst-' + key, '11:00');
-    await p.fill('#tet-' + key, '12:30');
-    await p.fill('#tre-' + key, 'Sharma Interiors, order 4512');
-    const minutes = await p.inputValue('#td-' + key);
-    if (minutes !== '90') throw new Error('duration not calculated: ' + minutes);
+    if ((await p.inputValue('#tt-' + key)) !== 'Site visit at Sharma Interiors, Noida') throw new Error('task title not kept');
+    if ((await p.inputValue('#ts-' + key)) !== 'IN PROGRESS') throw new Error('chosen status not applied');
+    await p.selectOption('#ts-' + key, 'COMPLETED');
+    if ((await p.inputValue('[data-new-task-status]')) !== 'IN PROGRESS') throw new Error('status choice did not stick');
   });
   await step('draft saves when the app goes to the background', async () => {
     // Drafts are deliberately not sent on every keystroke any more — that write rate is what
@@ -112,13 +113,11 @@ async function fillStep(page) {
     await p.waitForFunction(() => { const el = document.querySelector('[data-save-state]'); return !!el && /Draft saved/.test(el.textContent); }, null, { timeout: 40000 });
   });
   await step('employee completes every step and sees validation before submit', async () => {
-    for (let i = 0; i < 8; i++) {
-      const act = await p.getAttribute('.sticky-bar .btn.primary', 'data-act');
-      if (act === 'submit') break;
-      await fillStep(p);
-      await p.click('[data-act="next"]');
-      await p.waitForTimeout(150);
-    }
+    // The whole report is one page now: before anything is filled in, the review lists what is missing.
+    if (!(await p.$('[data-section="review"] .banner.bad'))) throw new Error('review did not flag the missing required answers');
+    // Answer everything (a few passes, so questions shown only after another answer get filled too).
+    for (let i = 0; i < 3; i++) { await fillStep(p); await p.waitForTimeout(200); }
+    await p.waitForSelector('[data-section="review"] .banner.ok', { timeout: 5000 }).catch(() => {});
     await p.screenshot({ path: path.join(OUT, 'flow-phone-review.png') });
     const blocked = await p.$('.banner.bad');
     if (blocked) throw new Error('review shows missing answers: ' + (await blocked.innerText()).slice(0, 200));
@@ -146,7 +145,7 @@ async function fillStep(page) {
     if (urls.length !== 1 || !urls[0].startsWith('https://wa.me/?text=')) throw new Error('WhatsApp not opened correctly: ' + JSON.stringify(urls));
     if (apiCalls) throw new Error('sharing made ' + apiCalls + ' server call(s); it must not send anything');
     const text = decodeURIComponent(urls[0].slice('https://wa.me/?text='.length));
-    const must = [reportId, 'daily work report', 'Submitted:', '*Tasks:', 'Site visit at Sharma Interiors, Noida', 'Sharma Interiors, order 4512', 'Visited two dealers in Okhla', "*Tomorrow's plan*", 'Sent from the'];
+    const must = [reportId, 'DAILY WORK REPORT', '\uD83D\uDD52 Sent ', 'THE DAY IN SHORT', 'Site visit at Sharma Interiors, Noida', 'Visited two dealers in Okhla', "TOMORROW'S PLAN", 'Daily Working Tracker_'];
     const missing = must.filter((x) => text.indexOf(x) < 0);
     if (missing.length) throw new Error('message is missing: ' + missing.join(', ') + '\n' + text.slice(0, 400));
     if (/undefined|null|\[object/.test(text)) throw new Error('message contains placeholder values');
@@ -213,8 +212,11 @@ async function fillStep(page) {
     await a.fill('.modal [name=designation]', 'Store Assistant');
     tempPw = await a.inputValue('.modal [name=password]');
     await a.click('.modal [data-save]');
-    await a.waitForSelector('.modal >> text=Temporary password', { timeout: 15000 });
+    // Wait for the confirmation dialog itself: the add form also has a "Temporary password" label.
+    await a.waitForSelector('.modal h2 >> text=Employee added', { timeout: 15000 });
+    if (!(await a.textContent('.modal')).includes(tempPw)) throw new Error('temporary password not shown for sharing');
     await a.click('.modal .modal-foot [data-close]');
+    await a.waitForSelector('.modal-backdrop', { state: 'detached', timeout: 5000 });
   });
   await step('new employee must change password at first sign-in', async () => {
     const ctx2 = await browser.newContext({ viewport: { width: 1200, height: 800 } });

@@ -3,7 +3,7 @@
  */
 import { CONFIG } from './config.js';
 import { api, ApiError, isConfigured, cachedApi } from './api.js';
-import { loadSession, logout, goLogin, homeFor, forgetSession } from './auth.js';
+import { loadSession, logout, goLogin, homeFor, forgetSession, sessionEnded } from './auth.js';
 
 // ============================ Safe HTML ============================
 
@@ -97,12 +97,21 @@ export function fmtDate(s, opts) {
   return DAYS[p.dow] + ', ' + p.d + ' ' + MONTHS[p.m - 1] + ' ' + p.y;
 }
 export function fmtMonth(ym) { const [y, m] = String(ym).split('-').map(Number); return MONTHS[m - 1] + ' ' + String(y).slice(2); }
+/*
+ * Building an Intl.DateTimeFormat is one of the slowest things a browser does in plain JavaScript
+ * (hundreds of microseconds each, more on a phone), and every timestamp in every table used to
+ * build a fresh one. One formatter per timezone is kept instead.
+ */
+let tzFormatter = null, tzFormatterFor = '';
 function tzParts(iso) {
   const d = new Date(iso);
   if (isNaN(d)) return null;
-  const f = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  if (!tzFormatter || tzFormatterFor !== TZ) {
+    tzFormatter = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+    tzFormatterFor = TZ;
+  }
   const p = {};
-  f.formatToParts(d).forEach((x) => { p[x.type] = x.value; });
+  tzFormatter.formatToParts(d).forEach((x) => { p[x.type] = x.value; });
   return p;
 }
 export function fmtTime(iso) {
@@ -127,10 +136,14 @@ export function fmtMinutes(min) {
   const h = Math.floor(min / 60), m = min % 60;
   return h + ' h' + (m ? ' ' + m + ' min' : '');
 }
+const numFormatters = {};
 export function fmtNum(n, digits) {
   const v = Number(n);
   if (!isFinite(v)) return '0';
-  return v.toLocaleString('en-IN', { maximumFractionDigits: digits === undefined ? 1 : digits });
+  const d = digits === undefined ? 1 : digits;
+  // toLocaleString builds a new Intl.NumberFormat on every call; dashboards format thousands of numbers.
+  if (!numFormatters[d]) numFormatters[d] = new Intl.NumberFormat('en-IN', { maximumFractionDigits: d });
+  return numFormatters[d].format(v);
 }
 export function fmtMoney(n) { return '₹' + fmtNum(n, 0); }
 export function fmtPct(n) { return fmtNum(n, 1) + '%'; }
@@ -565,7 +578,11 @@ export async function boot(opts) {
   try {
     session = await loadSession();
   } catch (e) {
-    if (e instanceof ApiError && (e.code === 'UNAUTHORIZED' || e.code === 'PASSWORD_CHANGE_REQUIRED')) return;
+    // The sign-in page is the only sensible place to go when the session is gone. (This used to
+    // rely on an event listener that was not registered until further down, so an expired session
+    // left the page on "getting your workspace ready…" for ever — which looked like a slow site.)
+    if (e instanceof ApiError && e.code === 'PASSWORD_CHANGE_REQUIRED') { location.href = 'login.html#change'; return; }
+    if (e instanceof ApiError && e.code === 'UNAUTHORIZED') { sessionEnded(e); goLogin('expired'); return; }
     document.body.innerHTML = '<div class="content"></div>';
     renderError(document.querySelector('.content'), e, () => location.reload());
     return;
@@ -577,7 +594,7 @@ export async function boot(opts) {
   applyBranding(session.settings);
   window.addEventListener('oc:auth', (e) => {
     if (e.detail.code === 'PASSWORD_CHANGE_REQUIRED') { location.href = 'login.html#change'; return; }
-    forgetSession();
+    sessionEnded(e.detail);
     goLogin('expired');
   });
 

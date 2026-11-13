@@ -99,6 +99,41 @@ export async function api(action, payload, opts) {
 }
 
 /**
+ * Runs several read-only calls in ONE round-trip to Apps Script.
+ *
+ * Each call to the Web App is a separate script execution that pays the same start-up cost, and
+ * the deployment allows only a limited number of executions at the same time for everyone put
+ * together. A page that needs three answers therefore asks for all three in one request; the
+ * server runs them in turn, sharing its per-execution caches, and returns one answer per call.
+ * If the deployed backend is older and does not know the `batch` action, the calls are simply
+ * made in parallel as before, so a frontend update never has to wait for a backend update.
+ *
+ * @param {Array<{action:string, payload?:object}>} calls
+ * @returns {Promise<any[]>} one data value per call, in order (rejects with the first error)
+ */
+let batchSupported = true;
+export async function apiBatch(calls) {
+  if (!calls.length) return [];
+  if (calls.length === 1) return [await api(calls[0].action, calls[0].payload)];
+  if (batchSupported) {
+    try {
+      const results = await api('batch', { calls: calls.map((c) => ({ action: c.action, payload: c.payload || {} })) });
+      if (Array.isArray(results) && results.length === calls.length) {
+        return results.map((r) => {
+          if (r && r.ok === true) return r.data;
+          const e = (r && r.error) || {};
+          throw new ApiError(e.code || 'SERVER_ERROR', e.message || 'Something went wrong.', e);
+        });
+      }
+    } catch (e) {
+      if (!(e instanceof ApiError && e.code === 'NOT_FOUND')) throw e;
+      batchSupported = false; // older backend: fall through to parallel calls
+    }
+  }
+  return Promise.all(calls.map((c) => api(c.action, c.payload)));
+}
+
+/**
  * Reference data (departments, the employee directory) changes rarely but was costing a full
  * round-trip on every page — and one round-trip to Apps Script is well over a second. So it is
  * cached twice: in memory for the current page view, and in localStorage across page views.
@@ -117,9 +152,34 @@ function storeGet(key) {
     return o && typeof o.at === 'number' ? o : null;
   } catch (e) { return null; }
 }
-function storeSet(key, data) {
-  try { localStorage.setItem(STORE_PREFIX + key, JSON.stringify({ at: Date.now(), data })); } catch (e) { /* quota or private mode */ }
+/*
+ * This origin's localStorage is shared with other internal apps, and an answer can be tens of
+ * kilobytes, so the cache keeps itself small: expired entries go, and if the browser still refuses
+ * the write, every cached answer is dropped and the write tried once more. Nothing here is the
+ * only copy of anything — the server is.
+ */
+const STORE_MAX_ENTRY = 200000;
+function storePrune(all) {
+  try {
+    const now = Date.now();
+    Object.keys(localStorage).filter((k) => k.indexOf(STORE_PREFIX) === 0).forEach((k) => {
+      if (all) { localStorage.removeItem(k); return; }
+      const o = storeGet(k.slice(STORE_PREFIX.length));
+      if (!o || now - o.at >= STORE_TTL_MS) localStorage.removeItem(k);
+    });
+  } catch (e) { /* ignore */ }
 }
+function storeSet(key, data) {
+  let raw;
+  try { raw = JSON.stringify({ at: Date.now(), data }); } catch (e) { return; }
+  if (raw.length > STORE_MAX_ENTRY) return;
+  try { localStorage.setItem(STORE_PREFIX + key, raw); } catch (e) {
+    storePrune(true);
+    try { localStorage.setItem(STORE_PREFIX + key, raw); } catch (e2) { /* private mode or no room at all */ }
+  }
+}
+// Tidy expired answers once per page load, off the critical path.
+setTimeout(() => storePrune(false), 4000);
 
 /** Drops everything cached across page views. Called when the signed-in person changes. */
 export function clearStoredCache() {
@@ -131,17 +191,24 @@ export function clearStoredCache() {
 export async function cachedApi(action, payload, ttlMs) {
   const key = action + ':' + JSON.stringify(payload || {});
   const hit = memo.get(key);
-  if (hit && Date.now() - hit.at < (ttlMs || 60000)) return hit.promise;
+  const stored = storeGet(key);
+  if (hit && Date.now() - hit.at < (ttlMs || 60000)) {
+    if (hit.done) return hit.data;
+    // A background refresh is still travelling: the copy already on this device is good enough,
+    // so do not make this screen wait a full round-trip for it.
+    if (stored && Date.now() - stored.at < STORE_TTL_MS) return stored.data;
+    return hit.promise;
+  }
 
   const request = () => {
-    const promise = api(action, payload)
-      .then((data) => { storeSet(key, data); return data; })
-      .catch((e) => { memo.delete(key); throw e; });
-    memo.set(key, { at: Date.now(), promise });
-    return promise;
+    const entry = { at: Date.now(), done: false, data: null, promise: null };
+    entry.promise = api(action, payload)
+      .then((data) => { storeSet(key, data); entry.done = true; entry.data = data; return data; })
+      .catch((e) => { if (memo.get(key) === entry) memo.delete(key); throw e; });
+    memo.set(key, entry);
+    return entry.promise;
   };
 
-  const stored = storeGet(key);
   if (stored && Date.now() - stored.at < STORE_TTL_MS) {
     request().catch(() => { /* the stored copy is already on screen */ });
     return stored.data;
@@ -149,6 +216,22 @@ export async function cachedApi(action, payload, ttlMs) {
   return request();
 }
 export function clearApiCache() { memo.clear(); }
+
+/**
+ * In-memory only (never localStorage): for answers that must be current, such as the state of
+ * today's report form, but that can be fetched a moment early. The home screen warms this up in
+ * the background, so opening the form a few seconds later shows it at once instead of after a
+ * round-trip. Anything older than `ttlMs` is fetched again.
+ */
+export function memoApi(action, payload, ttlMs) {
+  const key = action + ':' + JSON.stringify(payload || {});
+  const hit = memo.get(key);
+  if (hit && Date.now() - hit.at < (ttlMs || 60000)) return hit.promise;
+  const promise = api(action, payload).catch((e) => { memo.delete(key); throw e; });
+  memo.set(key, { at: Date.now(), promise });
+  return promise;
+}
+export function forgetMemo(action, payload) { memo.delete(action + ':' + JSON.stringify(payload || {})); }
 
 /**
  * Shows what was on screen last time, immediately, then replaces it when the server answers.
@@ -163,14 +246,65 @@ export function clearApiCache() { memo.clear(); }
  * @param {Promise<any>} [inFlight] a request already started elsewhere, to avoid asking twice
  * @returns {Promise<{data:any, stale:boolean}>}
  */
-export async function staleThenFresh(action, payload, onFresh, inFlight) {
+export async function staleThenFresh(action, payload, onFresh, inFlight, onError) {
   const key = action + ':' + JSON.stringify(payload || {});
   const pending = (inFlight || api(action, payload)).then((data) => { storeSet(key, data); return data; });
   const stored = storeGet(key);
   if (stored && Date.now() - stored.at < STORE_TTL_MS) {
     pending.then((fresh) => { try { onFresh(fresh); } catch (e) { /* view moved on */ } })
-      .catch(() => { /* the stored copy stays on screen */ });
+      .catch((e) => { if (onError) { try { onError(e); } catch (x) { /* ignore */ } } /* the stored copy stays on screen */ });
     return { data: stored.data, stale: true };
   }
   return { data: await pending, stale: false };
+}
+
+/**
+ * The usual shape of a list or analytics screen: paint what was on screen last time at once,
+ * mark the container as refreshing, and repaint when the server answers.
+ *
+ * `draw(data)` must itself check that the view is still current. The container shows a thin
+ * progress line while it carries last time's figures (see [aria-busy] in style.css).
+ *
+ * @param {string} action
+ * @param {object} payload
+ * @param {Element} container element that gets aria-busy while a stored copy is showing
+ * @param {(data:any)=>void} draw
+ * @param {Promise<any>} [inFlight] a request already started elsewhere
+ */
+export async function paintStaleThenFresh(action, payload, container, draw, inFlight, opts) {
+  if (container) container.setAttribute('aria-busy', 'true');
+  const clear = () => { if (container && container.isConnected) container.removeAttribute('aria-busy'); };
+  if (opts && opts.fresh) {
+    // Right after a change was saved, last time's copy would show the old state for a moment.
+    const key = action + ':' + JSON.stringify(payload || {});
+    const data = await (inFlight || api(action, payload));
+    storeSet(key, data);
+    clear();
+    draw(data);
+    return { data, stale: false };
+  }
+  const res = await staleThenFresh(action, payload, (fresh) => { clear(); draw(fresh); }, inFlight, () => { clear(); });
+  if (!res.stale) clear();
+  draw(res.data);
+  return res;
+}
+
+/**
+ * Starts a request before the screen is ready for it and hands the answer over when it is asked
+ * for. `take` returns the in-flight promise only when the filters still match what was requested,
+ * so a person who changes a dropdown while the page is loading gets fresh figures, not the primed
+ * ones. Used so the data request and the filter-option requests travel at the same time.
+ */
+export function primeRequest(action, payload) {
+  const key = JSON.stringify(payload || {});
+  let pending = api(action, payload);
+  pending.catch(() => { /* re-thrown to whoever takes it */ });
+  return {
+    take(current) {
+      if (!pending || JSON.stringify(current || {}) !== key) return null;
+      const p = pending;
+      pending = null;
+      return p;
+    }
+  };
 }

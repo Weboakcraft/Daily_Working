@@ -8,7 +8,7 @@
 
 const APP = {
   NAME: 'Oakcraft Daily Working Tracker',
-  VERSION: '1.1.0'
+  VERSION: '1.2.0'
 };
 
 /** Google Sheets schema. First column of every sheet is its primary key. */

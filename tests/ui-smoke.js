@@ -23,7 +23,7 @@ const USERS = { admin: 'demo.admin', manager: 'demo.anil', employee: 'demo.priya
 const only = process.env.ROLE;
 
 (async () => {
-  const browser = await chromium.launch();
+  const browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH, args: ['--no-sandbox'] } : {});
   let failures = 0;
   for (const [role, routes] of Object.entries(ROUTES)) {
     if (only && only !== role) continue;

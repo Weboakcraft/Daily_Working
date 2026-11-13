@@ -65,7 +65,7 @@ async function dropOtherCaches(keep) {
 }
 
 /** Current cache, if one is complete. */
-async function activeCache() {
+async function findActiveCache() {
   const keys = (await caches.keys()).filter((k) => k.indexOf(PREFIX) === 0);
   for (const k of keys) {
     const cache = await caches.open(k);
@@ -73,6 +73,20 @@ async function activeCache() {
   }
   return null;
 }
+
+/*
+ * Every one of the ~30 files a page loads used to list all caches, open one and look for the
+ * marker before it could be served — three storage round-trips per file, on the critical path.
+ * The answer only changes when this worker swaps caches, so it is remembered until then.
+ */
+let activePromise = null;
+function activeCache() {
+  if (!activePromise) {
+    activePromise = findActiveCache().catch(() => null).then((found) => { if (!found) activePromise = null; return found; });
+  }
+  return activePromise;
+}
+function forgetActiveCache() { activePromise = null; }
 
 /** Once per worker start: if the deployed version moved, fetch the new app and swap it in whole. */
 let checking = null;
@@ -85,6 +99,7 @@ function checkForUpdate() {
       if (current && current.version === version) return;
       await precache(version);
       await dropOtherCaches(cacheName(version));
+      forgetActiveCache();
     } catch (e) { /* offline: keep serving what we have */ }
   })().finally(() => { checking = null; });
   return checking;
@@ -93,6 +108,7 @@ function checkForUpdate() {
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     try { await precache(await liveVersion()); } catch (e) { /* offline install: fetch handler falls back to network */ }
+    forgetActiveCache();
     await self.skipWaiting();
   })());
 });
@@ -101,6 +117,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     const current = await activeCache();
     if (current) await dropOtherCaches(current.key);
+    forgetActiveCache();
     await self.clients.claim();
   })());
 });

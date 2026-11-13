@@ -14,12 +14,25 @@ if ('serviceWorker' in navigator) {
 }
 
 const TOKEN_KEY = 'oc.token';
+const ME_KEY = 'oc.me';
+/* Must match ME_TTL_MS in auth.js: inside this window the stored session is used as is. */
+const ME_FRESH_MS = 20 * 60 * 1000;
+
+/** True when auth.js will answer "who am I" from sessionStorage without asking the server. */
+function sessionIsFresh() {
+  try {
+    const cached = JSON.parse(sessionStorage.getItem(ME_KEY) || 'null');
+    return !!(cached && typeof cached.at === 'number' && Date.now() - cached.at < ME_FRESH_MS);
+  } catch (e) { return false; }
+}
 
 try {
   let token = '';
   try { token = localStorage.getItem(TOKEN_KEY) || ''; } catch (e) { /* private mode */ }
   const url = String(CONFIG.APPS_SCRIPT_URL || '');
-  if (token && /^https:\/\/script\.google(usercontent)?\.com\//.test(url)) {
+  // Moving between pages inside the app re-runs this file; when the session was verified a few
+  // minutes ago the answer is never read, so the request only burned a server execution.
+  if (token && !sessionIsFresh() && /^https:\/\/script\.google(usercontent)?\.com\//.test(url)) {
     window.__ocMePrefetch = fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },

@@ -1,5 +1,5 @@
 /** Employee master and department master. */
-import { api, ApiError } from './api.js';
+import { api, ApiError, cachedApi, primeRequest, paintStaleThenFresh } from './api.js';
 import {
   html, setHTML, $, $$, on, icon, toast, errorMessage, renderError, skeleton, emptyState, renderTable, pagerHtml, field, formValues,
   showFieldErrors, submitForm, withBusy, openModal, confirmDialog, attr, fmtDate, titleCase, hashQuery, setHashQuery, downloadBlob, esc, collapsibleFilters
@@ -62,8 +62,22 @@ export async function renderEmployees(ctx) {
       <button class="btn" type="button" data-import>${icon('upload')}<span class="btn-text">Import</span></button>
       <button class="btn primary" type="button" data-add>${icon('plus')}Add employee</button>` : '')}
     <form class="filters" data-filters role="search"></form><div data-counts></div><div class="panel" data-results>${skeleton(8)}</div>`);
+  // The list does not depend on the department dropdown, so both requests travel together.
+  const firstFilters = { search: q.get('search') || '', departmentId: q.get('departmentId') || '', role: q.get('role') || '', status: q.has('status') ? q.get('status') : 'Active' };
+  const primed = primeRequest('getEmployees', { filters: firstFilters, page: 1, pageSize: 50, sort: 'name' });
+  const deptsReady = Promise.resolve(cachedApi('getDepartments', { includeInactive: admin }, 120000));
+  deptsReady.catch(() => { /* shown below */ });
+  // "Add employee" and "Import" are on screen straight away, so they must work straight away.
+  let items = [], load = () => {};
+  const refresh = () => load(true);
+  if (admin) {
+    on(c, 'click', '.page-actions [data-add], .empty [data-add]', async () => {
+      try { openEmployeeDialog(ctx, null, await deptsReady, refresh); } catch (err) { toast(errorMessage(err), 'bad'); }
+    });
+    $('[data-import]', c).onclick = () => openImportDialog(ctx, refresh);
+  }
   let depts;
-  try { depts = await api('getDepartments', { includeInactive: admin }); } catch (e) { if (ctx.isCurrent()) renderError($('[data-results]', c), e, () => renderEmployees(ctx)); return; }
+  try { depts = await deptsReady; } catch (e) { if (ctx.isCurrent()) renderError($('[data-results]', c), e, () => renderEmployees(ctx)); return; }
   if (!ctx.isCurrent()) return;
   const deptOpts = depts.map((d) => ({ value: d.departmentId, label: titleCase(d.name) + (d.status === 'Active' ? '' : ' (inactive)') }));
   const form = $('[data-filters]', c);
@@ -72,12 +86,14 @@ export async function renderEmployees(ctx) {
     ${field({ name: 'role', label: 'Role', type: 'select', value: q.get('role') || '', placeholder: 'Any role', options: ROLES })}
     ${field({ name: 'status', label: 'Status', type: 'select', value: q.has('status') ? q.get('status') : 'Active', placeholder: 'Active and inactive', options: ['Active', 'Inactive'] })}`);
   collapsibleFilters(form);
-  let page = 1, items = [], timer = null;
-  const load = async () => {
+  let page = 1, timer = null, first = true;
+  load = async (fresh) => {
     const v = formValues(form);
     const results = $('[data-results]', c);
-    try {
-      const pg = await api('getEmployees', { filters: v, page, pageSize: 50, sort: 'name' });
+    const p = { filters: v, page, pageSize: 50, sort: 'name' };
+    const inFlight = first ? primed.take(p) || undefined : undefined;
+    first = false;
+    const draw = (pg) => {
       if (!ctx.isCurrent()) return;
       items = pg.items;
       setHTML($('[data-counts]', c), html`<p class="small muted" style="margin:0 0 10px">${pg.total} ${pg.total === 1 ? 'person' : 'people'} match. ${pg.counts.active} active, ${pg.counts.inactive} inactive.</p>`);
@@ -98,15 +114,16 @@ export async function renderEmployees(ctx) {
             ${e.employeeId === ctx.user.id ? '' : html`<button class="btn sm ghost" type="button" data-status="${e.employeeId}">${e.status === 'Active' ? 'Deactivate' : 'Reactivate'}</button>`}</div>` }] : [])
         ]
       });
-    } catch (e) { if (ctx.isCurrent()) renderError(results, e, load); }
+    };
+    try {
+      await paintStaleThenFresh('getEmployees', p, results, draw, inFlight, { fresh: !!fresh });
+    } catch (e) { if (ctx.isCurrent()) renderError(results, e, () => load(true)); }
   };
   form.addEventListener('change', () => { page = 1; setHashQuery(formValues(form), true); load(); });
   form.addEventListener('input', (e) => { if (e.target.type === 'search') { clearTimeout(timer); timer = setTimeout(() => { page = 1; setHashQuery(formValues(form), true); load(); }, 350); } });
   form.addEventListener('submit', (e) => e.preventDefault());
   on(c, 'click', '[data-page]', (e, b) => { page = Number(b.dataset.page); load(); });
   if (admin) {
-    const refresh = () => load();
-    on(c, 'click', '[data-add]', () => openEmployeeDialog(ctx, null, depts, refresh));
     on(c, 'click', '[data-edit]', (e, b) => openEmployeeDialog(ctx, items.find((x) => x.employeeId === b.dataset.edit), depts, refresh));
     on(c, 'click', '[data-reset]', (e, b) => openResetDialog(items.find((x) => x.employeeId === b.dataset.reset)));
     on(c, 'click', '[data-status]', async (e, b) => {
@@ -119,11 +136,10 @@ export async function renderEmployees(ctx) {
       });
       if (!ok) return;
       await withBusy(b, async () => {
-        try { await api('setEmployeeStatus', { employeeId: emp.employeeId, status: deactivate ? 'Inactive' : 'Active' }, { write: true }); toast(deactivate ? 'Employee deactivated.' : 'Employee reactivated.'); load(); }
+        try { await api('setEmployeeStatus', { employeeId: emp.employeeId, status: deactivate ? 'Inactive' : 'Active' }, { write: true }); toast(deactivate ? 'Employee deactivated.' : 'Employee reactivated.'); load(true); }
         catch (err) { toast(errorMessage(err), 'bad'); }
       });
     });
-    $('[data-import]', c).onclick = () => openImportDialog(ctx, refresh);
     $('[data-export]', c).onclick = (e) => withBusy(e.currentTarget, async () => {
       try {
         const pg = await api('getEmployees', { filters: formValues(form), page: 1, pageSize: 200 });

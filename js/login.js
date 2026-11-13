@@ -1,5 +1,5 @@
 /** Sign-in and first-login password change. */
-import { api, ApiError, isConfigured, getToken } from './api.js';
+import { api, ApiError, isConfigured, getToken, clearToken } from './api.js';
 import { login, loadSession, safeNext, forgetSession, logout } from './auth.js';
 import { html, setHTML, $, field, showFieldErrors, clearFieldErrors, withBusy, errorMessage, renderSetupRequired } from './app.js';
 
@@ -116,6 +116,8 @@ export async function initLogin() {
   if (!isConfigured()) { renderSetupRequired(); return; }
   decorate();
   window.addEventListener('oc:auth', () => { forgetSession(); renderLogin(); });
+  // Sent here because the server already rejected the token: nothing to verify, show the form now.
+  if (getToken() && params.get('reason') === 'expired') { forgetSession(); clearToken(); }
   if (getToken()) {
     try {
       const s = await loadSession(true);

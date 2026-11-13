@@ -1,5 +1,5 @@
 /** Management views: overview dashboard, daily management summary and department analytics. */
-import { api, staleThenFresh } from './api.js';
+import { api, staleThenFresh, paintStaleThenFresh, primeRequest } from './api.js';
 import {
   html, raw, esc, setHTML, $, $$, on, icon, toast, errorMessage, renderError, skeleton, emptyState, renderTable, field, formValues,
   fmtDate, fmtDateTime, fmtNum, fmtPct, fmtMonth, titleCase, reportLabel, followUpPill, prio, attr,
@@ -7,25 +7,6 @@ import {
 } from './app.js';
 import { columnChart, lineChart, hbars, segmented, legendHtml, sparkline, enableTips } from './charts.js';
 import { openExportDialog } from './export.js';
-
-/**
- * Starts a request before the screen is ready for it and hands the answer over when it is asked for.
- * `take` returns the in-flight promise only when the filters still match what was requested, so a
- * person who changes a dropdown while the page is loading gets fresh figures, not the primed ones.
- */
-function primeRequest(action, payload) {
-  const key = JSON.stringify(payload);
-  let pending = api(action, payload);
-  pending.catch(() => { /* re-thrown to whoever takes it */ });
-  return {
-    take(current) {
-      if (!pending || JSON.stringify(current) !== key) return null;
-      const p = pending;
-      pending = null;
-      return p;
-    }
-  };
-}
 
 async function filterOptions(ctx) {
   const [depts, dir] = await Promise.all([ctx.departments(), ctx.directory()]);
@@ -79,6 +60,8 @@ export async function renderOverview(ctx) {
     managerId: q.get('managerId') || undefined
   };
   const primed = primeRequest('getDashboardData', firstFilters);
+  let lastFilters = firstFilters;
+  $('[data-export]', c).onclick = () => openExportDialog(ctx, { dataset: 'REPORTS', filters: lastFilters });
 
   const opts = await filterOptions(ctx).catch(() => ({ depts: [], people: [], managers: [] }));
   if (!ctx.isCurrent()) return;
@@ -89,7 +72,6 @@ export async function renderOverview(ctx) {
     ${field({ name: 'employeeId', label: 'Employee', type: 'select', value: q.get('employeeId') || '', placeholder: 'Everyone', options: opts.people })}
     ${ctx.user.role === 'ADMIN' ? field({ name: 'managerId', label: 'Manager', type: 'select', value: q.get('managerId') || '', placeholder: 'Any manager', options: opts.managers }) : ''}`);
   collapsibleFilters(form);
-  let lastFilters = {};
   const load = async (v) => {
     const body = $('[data-body]', c);
     const r = v.range === 'custom' ? { from: v.from, to: v.to } : rangePreset(v.range, ctx.today);
@@ -106,7 +88,6 @@ export async function renderOverview(ctx) {
     } catch (e) { if (ctx.isCurrent()) renderError(body, e, () => load(v)); }
   };
   bindFilters(form, load);
-  $('[data-export]', c).onclick = () => openExportDialog(ctx, { dataset: 'REPORTS', filters: lastFilters });
   load(formValues(form));
 }
 
@@ -246,10 +227,11 @@ export async function renderDailySummary(ctx) {
     const v = formValues(form);
     const body = $('[data-body]', c);
     try {
-      const d = await api('getDashboardData', { from: v.date, to: v.date, departmentId: v.departmentId || undefined });
-      if (!ctx.isCurrent()) return;
-      summary = d.dailySummary;
-      drawSummary(body, summary, d);
+      await paintStaleThenFresh('getDashboardData', { from: v.date, to: v.date, departmentId: v.departmentId || undefined }, body, (d) => {
+        if (!ctx.isCurrent()) return;
+        summary = d.dailySummary;
+        drawSummary(body, summary, d);
+      });
     } catch (e) { if (ctx.isCurrent()) renderError(body, e, load); }
   };
   form.addEventListener('change', () => { setHashQuery(formValues(form), true); load(); });
@@ -335,6 +317,8 @@ export async function renderDepartmentAnalytics(ctx, args) {
   const q = hashQuery();
   const range = readRange(q, ctx.today, 'last30');
   setHTML(c, html`${ctx.head('Department analytics', '', html`<button class="btn" type="button" data-export>${icon('download')}<span class="btn-text">Export numbers</span></button>`)}<form class="filters" data-filters></form><div data-body>${skeleton(10)}</div>`);
+  let lastFilters = { from: range.from, to: range.to, departmentId: args[0] || undefined };
+  $('[data-export]', c).onclick = () => openExportDialog(ctx, { dataset: 'KPI', filters: lastFilters, datasets: ['KPI', 'REPORTS', 'TASKS'] });
   let depts;
   try { depts = await ctx.departments(); } catch (e) { if (ctx.isCurrent()) renderError($('[data-body]', c), e, () => renderDepartmentAnalytics(ctx, args)); return; }
   if (!ctx.isCurrent()) return;
@@ -348,15 +332,14 @@ export async function renderDepartmentAnalytics(ctx, args) {
   setHTML(form, html`${field({ name: 'dept', label: 'Department', type: 'select', value: deptId, options: depts.map((d) => ({ value: d.departmentId, label: titleCase(d.name) })) })}
     ${field({ name: 'range', label: 'Period', type: 'select', value: range.preset, options: RANGE_OPTIONS.filter((o) => o.value !== 'today' && o.value !== 'yesterday') })}
     ${customRangeFields(range, ctx.today)}`);
-  let lastFilters = {};
   const load = async (v) => {
     const body = $('[data-body]', c);
     const r = v.range === 'custom' ? { from: v.from, to: v.to } : rangePreset(v.range, ctx.today);
     lastFilters = { from: r.from, to: r.to, departmentId: v.dept };
     try {
-      const d = await api('getDepartmentAnalytics', { departmentId: v.dept, from: r.from, to: r.to });
-      if (!ctx.isCurrent()) return;
-      drawDepartment(ctx, body, d);
+      await paintStaleThenFresh('getDepartmentAnalytics', { departmentId: v.dept, from: r.from, to: r.to }, body, (d) => {
+        if (ctx.isCurrent()) drawDepartment(ctx, body, d);
+      });
     } catch (e) { if (ctx.isCurrent()) renderError(body, e, () => load(v)); }
   };
   form.addEventListener('change', (e) => {
@@ -367,7 +350,6 @@ export async function renderDepartmentAnalytics(ctx, args) {
     history.replaceState(null, '', '#department/' + v.dept + (new URLSearchParams(query).toString() ? '?' + new URLSearchParams(query).toString() : ''));
     load(v);
   });
-  $('[data-export]', c).onclick = () => openExportDialog(ctx, { dataset: 'KPI', filters: lastFilters, datasets: ['KPI', 'REPORTS', 'TASKS'] });
   load(formValues(form));
 }
 

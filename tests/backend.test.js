@@ -119,6 +119,28 @@ test('new users must change their temporary password', () => {
   const prep = (u) => { const t = login(u, 'Temp12345'); okRes(call('changePassword', { currentPassword: 'Temp12345', newPassword: 'Chair2026x' }, t)); return login(u, 'Chair2026x'); };
   mgrToken = prep('anita'); empToken = prep('ravi'); emp2Token = prep('seema'); outsiderToken = prep('omar');
 });
+test('login answers with the whole session so the first page needs no "me" call', () => {
+  const r = okRes(call('login', { username: adminUser, password: 'Walnut2026' }));
+  ok(r.session && r.session.user && r.session.user.id === r.user.id, 'session carried');
+  ok(r.session.settings && r.session.settings.COMPANY_NAME, 'settings carried');
+  ok(Array.isArray(r.session.departments) && r.session.enums, 'departments and enums carried');
+  eq(r.session.today, today());
+  okRes(call('logout', {}, r.token));
+});
+test('batch runs several reads in one request and keeps per-call errors separate', () => {
+  const out = okRes(call('batch', { calls: [
+    { action: 'me' }, { action: 'getDepartments', payload: {} }, { action: 'getEmployees', payload: {} },
+    { action: 'saveSettings', payload: {} }, { action: 'nope' }
+  ] }, empToken));
+  eq(out.length, 5);
+  eq(out[0].ok, true); eq(out[0].data.user.id, out[0].data.user.id);
+  eq(out[1].ok, true); ok(out[1].data.length > 0);
+  eq(out[2].ok, false); eq(out[2].error.code, 'FORBIDDEN', 'roles still enforced inside a batch');
+  eq(out[3].ok, false); eq(out[3].error.code, 'NOT_FOUND', 'writes are not batchable');
+  eq(out[4].ok, false); eq(out[4].error.code, 'NOT_FOUND');
+  errRes(call('batch', { calls: [] }, empToken), 'VALIDATION');
+  errRes(call('batch', { calls: [{ action: 'me' }] }, 'a'.repeat(64)), 'UNAUTHORIZED');
+});
 test('role enforcement: employees cannot use management or admin APIs', () => {
   errRes(call('getEmployees', {}, empToken), 'FORBIDDEN');
   errRes(call('saveEmployee', { employee: { name: 'Hack', departmentId: 'DEPT-SALES', username: 'hack', role: 'ADMIN' }, password: 'Temp12345' }, empToken), 'FORBIDDEN');
