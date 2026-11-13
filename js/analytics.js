@@ -1,5 +1,5 @@
 /** Employee dashboard (home), employee analytics and profile. */
-import { api, ApiError, staleThenFresh } from './api.js';
+import { api, ApiError, staleThenFresh, paintStaleThenFresh, memoApi } from './api.js';
 import {
   html, setHTML, $, $$, on, icon, toast, errorMessage, renderError, skeleton, emptyState, renderTable, field, showFieldErrors,
   withBusy, fmtDate, fmtDateTime, fmtTime, fmtHm, fmtNum, fmtPct, fmtMinutes, fmtMonth, titleCase, reportPill, followUpPill, prio,
@@ -39,6 +39,10 @@ export async function renderMyDashboard(ctx) {
   let d;
   try { const r = await staleThenFresh('getMyDashboard', {}, draw); d = r.data; } catch (e) { if (ctx.isCurrent()) { setHTML(c, ctx.head('Home')); const b = document.createElement('div'); c.appendChild(b); renderError(b, e, () => renderMyDashboard(ctx)); } return; }
   draw(d);
+  // The next tap is almost always "Today's report": fetch it now so that screen opens at once.
+  if (d.today && d.today.status !== 'SUBMITTED' && d.today.status !== 'LATE') {
+    setTimeout(() => { if (ctx.isCurrent()) memoApi('getTodayReport', {}, 90000).catch(() => { /* the form asks again */ }); }, 300);
+  }
 }
 
 /** Paints the screen. Called once with the stored copy and again when the server answers. */
@@ -133,9 +137,14 @@ export async function renderEmployeeAnalytics(ctx, args) {
     renderEmployeeAnalytics(ctx, args);
   };
   const body = $('[data-body]', c);
-  let d;
-  try { d = await api('getEmployeeAnalytics', { employeeId, from: r.from, to: r.to }); } catch (e) { if (ctx.isCurrent()) renderError(body, e, () => renderEmployeeAnalytics(ctx, args)); return; }
-  if (!ctx.isCurrent()) return;
+  try {
+    await paintStaleThenFresh('getEmployeeAnalytics', { employeeId, from: r.from, to: r.to }, body, (d) => {
+      if (ctx.isCurrent()) drawEmployeeAnalytics(ctx, c, body, d, self);
+    });
+  } catch (e) { if (ctx.isCurrent()) renderError(body, e, () => renderEmployeeAnalytics(ctx, args)); }
+}
+
+function drawEmployeeAnalytics(ctx, c, body, d, self) {
   const e = d.employee, m = d.metrics;
   document.title = (self ? 'My analytics' : e.name) + ' | ' + ctx.settings.COMPANY_NAME;
   const heading = $('.page-head h1', c);

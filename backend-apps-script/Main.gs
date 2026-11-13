@@ -17,6 +17,8 @@ function getRoutes() {
     logout: { fn: apiLogout, roles: ALL, allowMustChange: true },
     me: { fn: apiMe, roles: ALL, allowMustChange: true },
     changePassword: { fn: apiChangePassword, roles: ALL, allowMustChange: true },
+    // Several read-only calls in one execution (see apiBatch below).
+    batch: { fn: apiBatch, roles: ALL },
 
     // Employees
     getEmployees: { fn: apiGetEmployees, roles: MGMT },
@@ -70,6 +72,41 @@ function getRoutes() {
     installTriggers: { fn: apiInstallTriggers, roles: ADMIN },
     sendTestNotification: { fn: apiSendTestNotification, roles: ADMIN }
   };
+}
+
+/**
+ * Runs up to 8 read-only actions in one request and returns one {ok, data|error} per call.
+ *
+ * Every request is a separate script execution that pays the same ~1-2 second start-up, and the
+ * deployment can only run a limited number of executions at once for all users together. A page
+ * that needs three answers used to open three executions; now it opens one, and the three share
+ * this execution's cached reads of Employees, Settings and the like.
+ */
+var BATCHABLE = {
+  me: true, getEmployees: true, getEmployeeDirectory: true, getEmployee: true, getDepartments: true, getQuestions: true,
+  getTodayReport: true, getReport: true, getReports: true, getTasks: true, getFollowUps: true, getDashboardData: true,
+  getMyDashboard: true, getEmployeeAnalytics: true, getDepartmentAnalytics: true, search: true, getSettings: true,
+  getAuditLogs: true, getErrorLogs: true
+};
+
+function apiBatch(p, user, meta) {
+  const calls = Array.isArray(p.calls) ? p.calls : [];
+  assert(calls.length >= 1 && calls.length <= 8, 'VALIDATION', 'A batch holds between 1 and 8 calls.');
+  const routes = getRoutes();
+  return calls.map(function (c) {
+    const action = c && c.action;
+    try {
+      const route = BATCHABLE[action] && Object.prototype.hasOwnProperty.call(routes, action) ? routes[action] : null;
+      if (!route) throw appError('NOT_FOUND', 'Unknown action.');
+      if (user.mustChangePassword && !route.allowMustChange) throw appError('PASSWORD_CHANGE_REQUIRED', 'Please change your password to continue.');
+      if (route.roles && route.roles.indexOf(user.role) < 0) throw appError('FORBIDDEN', 'You do not have permission to do this.');
+      const payload = (c.payload && typeof c.payload === 'object') ? c.payload : {};
+      const data = route.fn(payload, user, meta || {});
+      return { ok: true, data: data === undefined ? null : data };
+    } catch (err) {
+      return errorResponse(err, { action: action, payload: c && c.payload }, user);
+    }
+  });
 }
 
 function doGet() {

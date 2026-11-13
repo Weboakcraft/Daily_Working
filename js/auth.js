@@ -2,7 +2,7 @@
  * Session helpers. The server is the source of truth for identity and permissions;
  * the cached profile below only avoids an extra round-trip when moving between pages.
  */
-import { api, getToken, setToken, clearToken, clearApiCache, clearStoredCache } from './api.js';
+import { api, ApiError, getToken, setToken, clearToken, clearApiCache, clearStoredCache } from './api.js';
 
 const ME_KEY = 'oc.me';
 /* Remembered landing page, so index.html can redirect without first asking the server who you are. */
@@ -32,6 +32,9 @@ export async function login(username, password) {
   clearStoredCache();
   forgetSession();
   setHomeHint(data.user);
+  // A current backend answers sign-in with the whole session (settings, departments, enums), so
+  // the page we land on does not have to make a second round-trip to ask who you are.
+  if (data.session && data.session.user) writeCachedMe(data.session);
   return data;
 }
 
@@ -49,12 +52,22 @@ export function forgetSession() {
   clearApiCache();
 }
 
-/** Reads the answer prefetch.js started before the app finished loading, if there is one. */
+/**
+ * Reads the answer prefetch.js started before the app finished loading, if there is one.
+ * Resolves to the session data, or throws the server's error (so an expired session is known at
+ * once instead of being asked about a second time), or resolves to null if the prefetch failed.
+ */
 function takePrefetchedMe() {
   const pending = window.__ocMePrefetch;
   if (!pending) return null;
   window.__ocMePrefetch = null;
-  return pending.then((body) => (body && body.ok === true ? body.data : null)).catch(() => null);
+  return pending.then((body) => {
+    if (body && body.ok === true) return body.data;
+    if (body && body.ok === false && body.error && body.error.code) {
+      throw new ApiError(body.error.code, body.error.message || 'Something went wrong.', body.error);
+    }
+    return null;
+  }).catch((e) => { if (e instanceof ApiError) throw e; return null; });
 }
 
 function readCachedMe() {
@@ -70,9 +83,32 @@ function writeCachedMe(data) {
 
 async function fetchMe() {
   const prefetched = takePrefetchedMe();
-  const data = (prefetched && await prefetched) || await api('me');
+  let data = null;
+  try {
+    data = prefetched ? await prefetched : null;
+  } catch (e) {
+    if (e instanceof ApiError && (e.code === 'UNAUTHORIZED' || e.code === 'PASSWORD_CHANGE_REQUIRED')) { sessionEnded(e); throw e; }
+  }
+  try {
+    if (!data) data = await api('me');
+  } catch (e) {
+    if (e instanceof ApiError && e.code === 'UNAUTHORIZED') sessionEnded(e);
+    throw e;
+  }
   writeCachedMe(data);
   return data;
+}
+
+/**
+ * The server has said this token is dead. Forget it right away, so the sign-in page (and the
+ * prefetch on every page after it) does not spend another round-trip asking about it.
+ */
+export function sessionEnded(e) {
+  if (e && e.code === 'PASSWORD_CHANGE_REQUIRED') return;
+  clearToken();
+  clearStoredCache();
+  clearHomeHint();
+  forgetSession();
 }
 
 /** Returns the `me` payload ({user, settings, today, departments, enums}) or null if signed out. */

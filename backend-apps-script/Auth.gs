@@ -94,7 +94,11 @@ function apiLogin(p, _user, meta) {
   });
   cache.put('sess:' + session.TokenHash, JSON.stringify({ employeeId: emp.EmployeeID, expiresAt: session.ExpiresAt }), LIMITS.SESSION_CACHE_SEC);
   audit({ id: emp.EmployeeID }, 'LOGIN', 'Employee', emp.EmployeeID, '', { sessionId: session.SessionID });
-  return { token: token, expiresAt: session.ExpiresAt, user: toSessionUser(emp, bool(cred.MustChange)) };
+  const user = toSessionUser(emp, bool(cred.MustChange));
+  // The whole session comes back with the sign-in, so the first page does not have to ask "me" again.
+  let sess = null;
+  try { sess = apiMe({}, Object.assign({ tokenHash: session.TokenHash }, user)); } catch (e) { sess = null; }
+  return { token: token, expiresAt: session.ExpiresAt, user: user, session: sess };
 }
 
 /**

@@ -3,7 +3,7 @@ import {
   html, setHTML, $, $$, on, icon, toast, errorMessage, renderError, skeleton, emptyState, field, formValues, showFieldErrors,
   submitForm, withBusy, openModal, confirmDialog, attr, raw, titleCase
 } from './app.js';
-import { api, clearApiCache } from './api.js';
+import { api, apiBatch, clearApiCache } from './api.js';
 import { TYPE_LABELS, SECTION_LABELS, OPTION_TYPES, renderQuestion, readValue, isVisible, initialValue, parseShowIf, isMulti } from './question-controls.js';
 
 const SECTIONS = Object.keys(SECTION_LABELS);
@@ -17,7 +17,7 @@ export async function renderQuestionBuilder(ctx, args) {
   let depts, all, common;
   const showRetired = sessionStorage.getItem('oc.qb.retired') === '1';
   try {
-    [depts, all] = await Promise.all([api('getDepartments', { includeInactive: true }), api('getQuestions', { includeInactive: true })]);
+    [depts, all] = await apiBatch([{ action: 'getDepartments', payload: { includeInactive: true } }, { action: 'getQuestions', payload: { includeInactive: true } }]);
   } catch (e) { if (ctx.isCurrent()) renderError(c, e, () => renderQuestionBuilder(ctx, args)); return; }
   if (!ctx.isCurrent()) return;
   common = all.filter((q) => q.departmentId === 'ALL');

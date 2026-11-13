@@ -1,5 +1,5 @@
 /** Reports list, report detail (review, remarks, reopen), tasks and follow-ups. */
-import { api, ApiError } from './api.js';
+import { api, ApiError, paintStaleThenFresh } from './api.js';
 import {
   html, setHTML, $, $$, on, icon, toast, errorMessage, renderError, skeleton, emptyState, renderTable, pagerHtml, field,
   formValues, showFieldErrors, submitForm, withBusy, openModal, confirmDialog, promptDialog, attr, raw,
@@ -60,6 +60,10 @@ export async function renderReportList(ctx, args, opts) {
   setHTML(c, html`${ctx.head(title, mine ? 'Every report you have saved or submitted.' : 'Filter, review and export daily reports.', mgmt ? html`<button class="btn" type="button" data-export>${icon('download')}<span class="btn-text">Export</span></button>` : '')}
     <form class="filters" data-filters role="search">${raw('<div class="field"><span class="skeleton sk-line" style="width:140px"></span></div>')}</form>
     <div data-summary></div><div class="panel" data-results>${skeleton(8)}</div>`);
+  // Header buttons work from the first paint, not only once the filter options have arrived.
+  ctx.lastFilters = { from: range.from, to: range.to };
+  const exp = $('[data-export]', c);
+  if (exp) exp.onclick = () => openExportDialog(ctx, { dataset: 'REPORTS', filters: ctx.lastFilters });
   const { depts, people } = mgmt ? await peopleOptions(ctx).catch(() => ({ depts: [], people: [] })) : { depts: [], people: [] };
   if (!ctx.isCurrent()) return;
   const form = $('[data-filters]', c);
@@ -87,11 +91,8 @@ export async function renderReportList(ctx, args, opts) {
     Object.keys(filters).forEach((k) => { if (filters[k] === '' || filters[k] === false) delete filters[k]; });
     if (mine) filters.employeeId = ctx.user.id;
     ctx.lastFilters = filters;
-    results.setAttribute('aria-busy', 'true');
-    try {
-      const pg = await api('getReports', { filters, page, pageSize: 50 });
+    const draw = (pg) => {
       if (!ctx.isCurrent()) return;
-      results.removeAttribute('aria-busy');
       const s = pg.summary;
       setHTML(summary, html`<p class="muted small" style="margin:0 0 10px">${fmtDate(pg.from)} to ${fmtDate(pg.to)}: <strong>${s.total}</strong> rows, ${s.submitted} submitted (${s.late} late), ${s.draft} in draft${filters.includeNotStarted ? ', ' + s.notStarted + ' missing' : ''}.</p>`);
       setHTML(results, html`<div data-table></div>${pagerHtml(pg)}`);
@@ -108,14 +109,15 @@ export async function renderReportList(ctx, args, opts) {
           { key: 'submittedAt', label: 'Submitted', sortable: true, render: (x) => x.submittedAt ? fmtDateTime(x.submittedAt) : '' }
         ]
       });
+    };
+    try {
+      await paintStaleThenFresh('getReports', { filters, page, pageSize: 50 }, results, draw);
     } catch (e) {
       if (ctx.isCurrent()) renderError(results, e, () => load(v));
     }
   };
   on(c, 'click', '[data-page]', (e, b) => { page = Number(b.dataset.page); const v = formValues(form); setHashQuery(Object.assign(v, { page })); load(v); window.scrollTo({ top: 0 }); });
   bindFilterForm(form, (v) => { page = 1; load(v); });
-  const exp = $('[data-export]', c);
-  if (exp) exp.onclick = () => openExportDialog(ctx, { dataset: 'REPORTS', filters: ctx.lastFilters });
   load(formValues(form));
 }
 
@@ -260,6 +262,9 @@ export async function renderTasks(ctx) {
   const mgmt = ctx.user.role !== 'EMPLOYEE';
   setHTML(c, html`${ctx.head(mgmt ? 'Tasks' : 'My tasks', mgmt ? 'Every task recorded in daily reports.' : 'Tasks from your reports. Close unfinished ones here or continue them in today\'s report.', mgmt ? html`<button class="btn" type="button" data-export>${icon('download')}<span class="btn-text">Export</span></button>` : '')}
     <form class="filters" data-filters role="search"></form><div data-counts></div><div class="panel" data-results>${skeleton(8)}</div>`);
+  ctx.lastFilters = { from: range.from, to: range.to };
+  const exp = $('[data-export]', c);
+  if (exp) exp.onclick = () => openExportDialog(ctx, { dataset: 'TASKS', filters: ctx.lastFilters, datasets: ['TASKS', 'REPORTS', 'KPI'] });
   const { depts, people } = await peopleOptions(ctx).catch(() => ({ depts: [], people: [] }));
   if (!ctx.isCurrent()) return;
   const form = $('[data-filters]', c);
@@ -273,14 +278,13 @@ export async function renderTasks(ctx) {
     <label class="check" style="padding-bottom:8px"><input type="checkbox" name="openOnly" ${attr(q.get('openOnly') === 'true', 'checked')}>Unfinished only</label>`);
   collapsibleFilters(form);
   let page = Number(q.get('page')) || 1;
-  const load = async (v) => {
+  const load = async (v, fresh) => {
     const results = $('[data-results]', c);
     const r = v.range === 'custom' ? { from: v.from, to: v.to } : rangePreset(v.range, ctx.today);
     const filters = Object.assign({}, v, r); delete filters.range; delete filters.page;
     Object.keys(filters).forEach((k) => { if (filters[k] === '' || filters[k] === false) delete filters[k]; });
     ctx.lastFilters = filters;
-    try {
-      const pg = await api('getTasks', { filters, page, pageSize: 50 });
+    const draw = (pg) => {
       if (!ctx.isCurrent()) return;
       setHTML($('[data-counts]', c), html`<div class="chips" style="margin-bottom:12px">${Object.keys(pg.counts).filter((k) => pg.counts[k]).map((k) => html`<span class="pill ${{ COMPLETED: 'ok', 'IN PROGRESS': 'info', PENDING: 'warn', BLOCKED: 'bad', 'CARRIED FORWARD': 'accent', CANCELLED: 'off' }[k]}">${titleCase(k)} <strong class="num">${pg.counts[k]}</strong></span>`)}</div>`);
       setHTML(results, html`<div data-table></div>${pagerHtml(pg)}`);
@@ -299,6 +303,9 @@ export async function renderTasks(ctx) {
         ]
       });
       results._items = pg.items;
+    };
+    try {
+      await paintStaleThenFresh('getTasks', { filters, page, pageSize: 50 }, results, draw, undefined, { fresh: !!fresh });
     } catch (e) { if (ctx.isCurrent()) renderError(results, e, () => load(v)); }
   };
   on(c, 'click', '[data-page]', (e, b) => { page = Number(b.dataset.page); const v = formValues(form); setHashQuery(Object.assign(v, { page })); load(v); });
@@ -315,12 +322,10 @@ export async function renderTasks(ctx) {
     const btn = m.el.querySelector('[data-save]');
     btn.onclick = async () => {
       const v = formValues(m.el);
-      try { await submitForm(m.el, btn, () => api('updateTask', { taskId: t.taskId, status: v.status, remarks: v.remarks }, { write: true }), 'Task updated.'); m.close(); load(formValues(form)); } catch (err) { /* toast shown */ }
+      try { await submitForm(m.el, btn, () => api('updateTask', { taskId: t.taskId, status: v.status, remarks: v.remarks }, { write: true }), 'Task updated.'); m.close(); load(formValues(form), true); } catch (err) { /* toast shown */ }
     };
   });
   bindFilterForm(form, (v) => { page = 1; load(v); });
-  const exp = $('[data-export]', c);
-  if (exp) exp.onclick = () => openExportDialog(ctx, { dataset: 'TASKS', filters: ctx.lastFilters, datasets: ['TASKS', 'REPORTS', 'KPI'] });
   load(formValues(form));
 }
 
@@ -343,7 +348,7 @@ export async function renderFollowUps(ctx) {
     <div class="panel" data-results>${skeleton(6)}</div>`);
   const form = $('[data-filters]', c);
   let page = 1, currentTab = tab, items = [];
-  const load = async () => {
+  const load = async (fresh) => {
     const results = $('[data-results]', c);
     const v = formValues(form);
     const filters = { priority: v.priority || undefined, search: v.search || undefined };
@@ -351,8 +356,7 @@ export async function renderFollowUps(ctx) {
     if (currentTab === 'mine') { filters.mine = true; filters.status = 'ACTIVE'; }
     if (currentTab === 'overdue') filters.overdue = true;
     if (currentTab === 'done') filters.status = 'DONE';
-    try {
-      const pg = await api('getFollowUps', { filters, page, pageSize: 50 });
+    const draw = (pg) => {
       if (!ctx.isCurrent()) return;
       const rows = pg.items;
       items = rows;
@@ -377,6 +381,9 @@ export async function renderFollowUps(ctx) {
         const el = $('[data-focus]', results);
         if (el) { el.closest('tr').style.background = 'var(--accent-tint)'; el.scrollIntoView({ block: 'center' }); }
       }
+    };
+    try {
+      await paintStaleThenFresh('getFollowUps', { filters, page, pageSize: 50 }, results, draw, undefined, { fresh: fresh === true });
     } catch (e) { if (ctx.isCurrent()) renderError(results, e, load); }
   };
   on(c, 'click', '[data-tab]', (e, b) => {
@@ -387,9 +394,9 @@ export async function renderFollowUps(ctx) {
     load();
   });
   on(c, 'click', '[data-page]', (e, b) => { page = Number(b.dataset.page); load(); });
-  on(c, 'click', '[data-edit]', (e, b) => { const f = items.find((x) => x.followUpId === b.dataset.edit); if (f) openFollowUpDialog(ctx, f, load); });
+  on(c, 'click', '[data-edit]', (e, b) => { const f = items.find((x) => x.followUpId === b.dataset.edit); if (f) openFollowUpDialog(ctx, f, () => load(true)); });
   const nb = $('[data-new]', c);
-  if (nb) nb.onclick = () => openFollowUpDialog(ctx, null, load);
+  if (nb) nb.onclick = () => openFollowUpDialog(ctx, null, () => load(true));
   const exp = $('[data-export]', c);
   if (exp) exp.onclick = () => openExportDialog(ctx, { dataset: 'FOLLOWUPS', filters: { from: addDays(ctx.today, -90), to: ctx.today }, datasets: ['FOLLOWUPS'] });
   bindFilterForm(form, () => { page = 1; load(); });

@@ -4,7 +4,7 @@
  * and submits with an idempotency key so retries never create duplicates.
  */
 import { CONFIG } from './config.js';
-import { api, ApiError, newRequestId } from './api.js';
+import { api, ApiError, newRequestId, memoApi, forgetMemo } from './api.js';
 import {
   html, setHTML, $, $$, on, icon, toast, errorMessage, confirmDialog, openModal, renderError, skeleton, emptyState,
   fmtDate, fmtTime, fmtHm, fmtMinutes, fmtDateTime, relTime, titleCase, reportPill, taskPill, prio, attr, addDays,
@@ -71,8 +71,11 @@ export async function renderReportForm(ctx, args) {
   const c = ctx.content;
   setHTML(c, html`${ctx.head("Today's report")}${skeleton(8)}`);
   let data;
+  const query = date ? { date } : {};
   try {
-    data = await api('getTodayReport', date ? { date } : {});
+    // Warmed by the home screen a moment ago, or fetched now. Always the server's current answer.
+    data = await memoApi('getTodayReport', query, 90000);
+    forgetMemo('getTodayReport', query);
   } catch (e) {
     if (!ctx.isCurrent()) return;
     setHTML(c, ctx.head("Today's report"));
@@ -141,6 +144,7 @@ function onVisibility() {
 export function markChanged(opts) {
   S.version++;
   writeBackup();
+  refreshReview();
   if (!(opts && opts.silent)) setSaveState({ kind: 'pending' });
   clearTimeout(S.timer);
   const closesIn = closesAtMs() ? closesAtMs() - serverNow() : Infinity;
@@ -477,8 +481,23 @@ function renderStep() {
     ${review ? html`<section class="form-section last" data-section="review">
       <h2 tabindex="-1" data-step-title="review">${review.title}</h2>
       <p class="muted">${review.desc}</p>
-      ${renderReview()}
+      <div data-review>${renderReview()}</div>
     </section>` : ''}`);
+}
+
+/**
+ * The review sits at the bottom of the same page as the questions, so it has to follow the
+ * answers: otherwise it keeps saying "Fix these before submitting" after they were fixed.
+ * Batched to one repaint per frame, so typing stays smooth.
+ */
+let reviewFrame = 0;
+function refreshReview() {
+  if (reviewFrame) return;
+  reviewFrame = requestAnimationFrame(() => {
+    reviewFrame = 0;
+    const box = S && $('[data-review]');
+    if (box) setHTML(box, renderReview());
+  });
 }
 
 /** Brings a section (or a single question) into view without jumping the page. */
