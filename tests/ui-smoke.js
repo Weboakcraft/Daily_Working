@@ -14,10 +14,10 @@ const OUT = path.join(__dirname, 'screenshots');
 fs.mkdirSync(OUT, { recursive: true });
 
 const ROUTES = {
-  admin: ['dashboard.html#overview', 'dashboard.html#overview?range=last30', 'dashboard.html#summary', 'dashboard.html#department', 'reports.html#list', 'reports.html#tasks', 'reports.html#followups',
+  admin: ['dashboard.html#overview', 'dashboard.html#overview?range=last30', 'dashboard.html#summary', 'dashboard.html#department', 'dashboard.html#mis', 'dashboard.html#mis?week=2026-01-05', 'employee.html#mis', 'reports.html#list', 'reports.html#tasks', 'reports.html#followups',
     'admin.html#employees', 'admin.html#departments', 'admin.html#questions', 'admin.html#questions/DEPT-SALES', 'admin.html#settings', 'admin.html#audit', 'employee.html#home', 'employee.html#profile'],
-  manager: ['dashboard.html#overview', 'dashboard.html#department', 'reports.html#list', 'reports.html#followups', 'admin.html#employees', 'employee.html#today'],
-  employee: ['employee.html#home', 'employee.html#today', 'employee.html#history', 'employee.html#analytics', 'reports.html#tasks', 'reports.html#followups', 'employee.html#profile', 'admin.html#employees']
+  manager: ['dashboard.html#overview', 'dashboard.html#department', 'dashboard.html#mis', 'employee.html#mis', 'reports.html#list', 'reports.html#followups', 'admin.html#employees', 'employee.html#today'],
+  employee: ['employee.html#home', 'employee.html#today', 'employee.html#history', 'employee.html#analytics', 'employee.html#mis', 'reports.html#tasks', 'reports.html#followups', 'employee.html#profile', 'admin.html#employees']
 };
 const USERS = { admin: 'demo.admin', manager: 'demo.anil', employee: 'demo.priya' };
 const only = process.env.ROLE;

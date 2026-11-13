@@ -23,6 +23,7 @@
   <script type="module">
     import { boot } from './js/app.js';
     import { renderOverview, renderDailySummary, renderDepartmentAnalytics } from './js/dashboard.js';
+    import { renderTeamMis } from './js/mis.js';
     boot({
       page: 'dashboard',
       roles: ['ADMIN', 'MANAGER'],
@@ -30,7 +31,8 @@
       routes: {
         overview: { render: renderOverview },
         summary: { render: renderDailySummary },
-        department: { render: renderDepartmentAnalytics }
+        department: { render: renderDepartmentAnalytics },
+        mis: { render: renderTeamMis }
       }
     });
   </script>

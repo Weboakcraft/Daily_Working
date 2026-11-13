@@ -26,7 +26,7 @@ const SHELL = [
   'js/config.js', 'js/prefetch.js', 'js/api.js', 'js/auth.js', 'js/app.js', 'js/charts.js',
   'js/login.js', 'js/report-form.js', 'js/report-form-tasks.js', 'js/question-controls.js',
   'js/analytics.js', 'js/dashboard.js', 'js/reports.js', 'js/employees.js', 'js/questions.js',
-  'js/admin.js', 'js/export.js', 'js/whatsapp.js',
+  'js/admin.js', 'js/export.js', 'js/whatsapp.js', 'js/mis.js',
   'assets/favicon.png', 'assets/oakcraft-logo.png', 'assets/oakcraft-logo-light.png',
   'assets/fonts/IBMPlexSans-Regular-Latin1.woff2',
   'assets/fonts/IBMPlexSans-Medium-Latin1.woff2',

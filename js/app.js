@@ -508,6 +508,7 @@ function navFor(user) {
       { href: 'dashboard.html#overview', label: 'Overview', icon: 'grid', key: 'dashboard:overview' },
       { href: 'dashboard.html#summary', label: 'Daily summary', icon: 'sun', key: 'dashboard:summary' },
       { href: 'dashboard.html#department', label: 'Department analytics', icon: 'chart', key: 'dashboard:department' },
+      { href: 'dashboard.html#mis', label: 'Weekly MIS', icon: 'calendar', key: 'dashboard:mis' },
       { href: 'reports.html#list', label: 'Reports', icon: 'doc', key: 'reports:list,reports:view' },
       { href: 'reports.html#tasks', label: 'Tasks', icon: 'tasks', key: 'reports:tasks' },
       { href: 'reports.html#followups', label: 'Follow-ups', icon: 'flag', key: 'reports:followups' },
@@ -522,7 +523,8 @@ function navFor(user) {
       { href: 'reports.html#tasks', label: 'My tasks', icon: 'tasks', key: 'reports:tasks' },
       { href: 'reports.html#followups', label: 'Follow-ups', icon: 'flag', key: 'reports:followups' }
     ]),
-    { href: 'employee.html#analytics', label: 'My analytics', icon: 'chart', key: 'employee:analytics' }
+    { href: 'employee.html#analytics', label: 'My analytics', icon: 'chart', key: 'employee:analytics' },
+    { href: 'employee.html#mis', label: mgmt ? 'My weekly MIS' : 'Weekly MIS', icon: 'calendar', key: 'employee:mis' }
   ] });
   if (admin) {
     groups.push({ title: 'Administration', items: [

@@ -25,6 +25,7 @@
     import { renderReportForm } from './js/report-form.js';
     import { renderMyDashboard, renderEmployeeAnalytics, renderProfile } from './js/analytics.js';
     import { renderReportList } from './js/reports.js';
+    import { renderMyMis } from './js/mis.js';
     boot({
       page: 'employee',
       defaultRoute: 'home',
@@ -33,6 +34,7 @@
         today: { render: renderReportForm },
         history: { render: (ctx, args) => renderReportList(ctx, args, { mine: true }) },
         analytics: { render: renderEmployeeAnalytics },
+        mis: { render: renderMyMis },
         profile: { render: renderProfile }
       }
     });

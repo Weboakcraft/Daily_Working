@@ -42,6 +42,9 @@
   .form-grid, .task-body .form-grid { grid-template-columns: 1fr; }
   .filters-toggle { display: inline-flex; margin-bottom: 10px; }
   .filters:not(.open) > .field:not(.search-field), .filters:not(.open) > .row, .filters:not(.open) > .check, .filters:not(.open) > [data-extra] { display: none !important; }
+  .filters > .row.week-row, .filters:not(.open) > .row.week-row { display: flex !important; flex-basis: 100%; }
+  .filters > .row.week-row .field { flex: 1 1 auto; min-width: 0; }
+  .filters:not(.open) > [data-dept] { display: none !important; }
   .filters .field { min-width: calc(50% - 5px); flex: 1 1 calc(50% - 5px); }
   .filters .field.search-field { flex-basis: 100%; }
   .ledger { grid-template-columns: repeat(2, minmax(0, 1fr)); }
