@@ -2,7 +2,7 @@
 import { api, ApiError, cachedApi, primeRequest, paintStaleThenFresh } from './api.js';
 import {
   html, setHTML, $, $$, on, icon, toast, errorMessage, renderError, skeleton, emptyState, renderTable, pagerHtml, field, formValues,
-  showFieldErrors, submitForm, withBusy, openModal, confirmDialog, attr, fmtDate, titleCase, hashQuery, setHashQuery, downloadBlob, esc, collapsibleFilters
+  showFieldErrors, submitForm, withBusy, openModal, confirmDialog, attr, fmtDate, fmtHm, titleCase, hashQuery, setHashQuery, downloadBlob, esc, collapsibleFilters
 } from './app.js';
 import { toCsv } from './export.js';
 
@@ -311,6 +311,7 @@ export async function renderDepartments(ctx) {
         columns: [
           { key: 'name', label: 'Department', primary: true, sortable: true, render: (d) => html`<strong>${titleCase(d.name)}</strong><span class="sub">${d.departmentId}${d.description ? ', ' + d.description : ''}</span>` },
           { key: 'managerName', label: 'Manager', sortable: true, render: (d) => d.managerName || html`<span class="muted">Not assigned</span>` },
+          { key: 'reportDeadline', label: 'Report deadline', sortable: true, render: (d) => d.reportDeadline ? html`<strong>${fmtHm(d.reportDeadline)}</strong>` : html`<span class="muted">${fmtHm(ctx.settings.REPORT_DEADLINE)} (company)</span>` },
           { key: 'employeeCount', label: 'Active employees', align: 'right', sortable: true },
           { key: 'status', label: 'Status', sortable: true, render: (d) => html`<span class="pill ${d.status === 'Active' ? 'ok' : 'off'}">${d.status}</span>` },
           { key: 'actions', label: 'Actions', render: (d) => html`<div class="row" style="gap:4px;flex-wrap:nowrap"><button class="btn sm" type="button" data-edit="${d.departmentId}">Edit</button><a class="btn sm ghost" href="admin.html#questions/${d.departmentId}">Questions</a></div>` }
@@ -318,12 +319,12 @@ export async function renderDepartments(ctx) {
       });
     } catch (e) { if (ctx.isCurrent()) renderError(results, e, load); }
   };
-  on(c, 'click', '[data-add]', () => openDepartmentDialog(null, load));
-  on(c, 'click', '[data-edit]', (e, b) => openDepartmentDialog(depts.find((d) => d.departmentId === b.dataset.edit), load));
+  on(c, 'click', '[data-add]', () => openDepartmentDialog(ctx, null, load));
+  on(c, 'click', '[data-edit]', (e, b) => openDepartmentDialog(ctx, depts.find((d) => d.departmentId === b.dataset.edit), load));
   load();
 }
 
-async function openDepartmentDialog(dept, done) {
+async function openDepartmentDialog(ctx, dept, done) {
   const dir = await api('getEmployeeDirectory', {}).catch(() => []);
   const managers = dir.filter((p) => p.role !== 'EMPLOYEE').map((p) => ({ value: p.employeeId, label: p.name + ' (' + titleCase(p.departmentName) + ')' }));
   const d = dept || { status: 'Active' };
@@ -332,6 +333,7 @@ async function openDepartmentDialog(dept, done) {
     body: html`<form class="stack" novalidate>
       ${field({ name: 'name', label: 'Department name', required: true, value: d.name, maxlength: 60, hint: 'Stored in capitals, e.g. QUALITY CONTROL.' })}
       ${field({ name: 'managerId', label: 'Department manager', type: 'select', value: d.managerId, placeholder: 'Not assigned', options: managers, hint: 'Only people with the Manager or Admin role are listed.' })}
+      ${field({ name: 'reportDeadline', label: 'Report deadline for this department', type: 'time', value: d.reportDeadline || '', hint: 'Leave empty to use the company deadline (' + fmtHm(ctx.settings.REPORT_DEADLINE) + '). After this time the report form locks for this department.' })}
       ${field({ name: 'description', label: 'Description', type: 'textarea', value: d.description, maxlength: 300, rows: 2 })}
       ${field({ name: 'status', label: 'Status', type: 'select', value: d.status, options: ['Active', 'Inactive'].map((x) => ({ value: x, label: x })), hint: 'A department can be deactivated only when it has no active employees.' })}
     </form>`,

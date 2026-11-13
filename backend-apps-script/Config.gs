@@ -1,6 +1,6 @@
 const APP = {
   NAME: 'Oakcraft Daily Working Tracker',
-  VERSION: '1.4.0'
+  VERSION: '1.5.0'
 };
 
 
@@ -8,7 +8,7 @@ const SHEETS = {
   Employees: [ 'EmployeeID', 'EmployeeName', 'DepartmentID', 'Designation', 'Role', 'ManagerID', 'Email', 'Mobile', 'JoiningDate', 'EmploymentStatus', 'Username', 'Status', 'ReportRequired', 'IsDemo', 'CreatedAt', 'UpdatedAt' ],
   Credentials: [ 'EmployeeID', 'Username', 'PasswordHash', 'Salt', 'MustChange', 'PasswordUpdatedAt', 'Password' ],
   Sessions: [ 'SessionID', 'TokenHash', 'EmployeeID', 'CreatedAt', 'ExpiresAt', 'Revoked', 'UserAgent' ],
-  Departments: [ 'DepartmentID', 'DepartmentName', 'ManagerID', 'Status', 'Description', 'CreatedAt', 'UpdatedAt' ],
+  Departments: [ 'DepartmentID', 'DepartmentName', 'ManagerID', 'Status', 'Description', 'CreatedAt', 'UpdatedAt', 'ReportDeadline' ],
   Questions: [ 'QuestionID', 'DepartmentID', 'QuestionKey', 'Section', 'QuestionText', 'QuestionType', 'Required', 'Options', 'DisplayOrder', 'Validation', 'HelpText', 'DefaultValue', 'ShowIf', 'Status', 'CreatedAt', 'UpdatedAt' ],
   Reports: [ 'ReportID', 'UniqueKey', 'EmployeeID', 'DepartmentID', 'ReportDate', 'Status', 'StartedAt', 'LastSavedAt', 'SubmittedAt', 'FirstSubmittedAt', 'LateFlag', 'ManagerID', 'ReviewStatus', 'ManagerRemarks', 'ReopenedAt', 'ReopenedBy', 'ReopenReason', 'TaskTotal', 'TaskCompleted', 'TaskPending', 'TaskBlocked', 'TaskCarried', 'WorkMinutes', 'HasBlocker', 'IsDemo', 'CreatedAt', 'UpdatedAt' ],
   Tasks: [ 'TaskID', 'ReportID', 'EmployeeID', 'DepartmentID', 'ReportDate', 'TaskTitle', 'Description', 'Category', 'StartTime', 'EndTime', 'Duration', 'Priority', 'Status', 'RelatedType', 'RelatedEntity', 'Remarks', 'SourceTaskID', 'CarriedToTaskID', 'CarryCount', 'DisplayOrder', 'Deleted', 'IsDemo', 'CreatedAt', 'UpdatedAt' ],

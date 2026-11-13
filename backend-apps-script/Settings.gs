@@ -31,10 +31,10 @@ function settingDefs() {
       desc: 'Office end time (HH:mm)'
     },
     REPORT_DEADLINE: {
-      def: '21:15',
+      def: '20:00',
       type: 'time',
       pub: true,
-      desc: 'Daily report deadline (HH:mm). Reports cannot be submitted after this time.'
+      desc: 'Daily report deadline (HH:mm) for every department without its own deadline. Reports cannot be submitted after this time.'
     },
     GRACE_PERIOD_MINUTES: {
       def: 0,
@@ -542,14 +542,29 @@ function nextWorkingDay(date, s) {
 }
 
 
-function reportDeadline(date, s) {
-  const deadline = Utilities.parseDate(date + ' ' + s.REPORT_DEADLINE, s.TIMEZONE, 'yyyy-MM-dd HH:mm');
+function isDeadlineTime(v) {
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(String(v || ''));
+}
+
+
+function deadlineTimeFor(dept, s) {
+  if (dept && typeof dept !== 'object') {
+    dept = getDepartment(dept);
+  }
+  return dept && isDeadlineTime(dept.ReportDeadline) ? String(dept.ReportDeadline) : s.REPORT_DEADLINE;
+}
+
+
+function reportDeadline(date, s, dept) {
+  const time = deadlineTimeFor(dept, s);
+  const deadline = Utilities.parseDate(date + ' ' + time, s.TIMEZONE, 'yyyy-MM-dd HH:mm');
   const graceEnd = new Date(deadline.getTime() + num(s.GRACE_PERIOD_MINUTES) * 60000);
   return {
     deadline: deadline.toISOString(),
     graceEnd: graceEnd.toISOString(),
     graceMinutes: num(s.GRACE_PERIOD_MINUTES),
-    time: s.REPORT_DEADLINE,
+    time: time,
+    departmentOwn: time !== s.REPORT_DEADLINE || !!(dept && isDeadlineTime(dept.ReportDeadline)),
     locks: !!s.LOCK_AFTER_DEADLINE,
     closesAt: s.LOCK_AFTER_DEADLINE ? graceEnd.toISOString() : ''
   };

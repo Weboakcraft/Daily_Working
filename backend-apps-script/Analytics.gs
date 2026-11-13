@@ -907,7 +907,7 @@ function apiGetMyDashboard_(p, user) {
     today: {
       date: today,
       workingDay: workingDayInfo(today, s),
-      deadline: reportDeadline(today, s),
+      deadline: reportDeadline(today, s, emp.DepartmentID),
       status: todayReport ? todayReport.Status : REPORT_STATUS.NOT_STARTED,
       report: publicReport(todayReport),
       tasks: {

@@ -114,7 +114,7 @@ const Notify = {
         message: {
           event: event,
           subject: 'Reminder: submit your daily report',
-          text: 'Please submit today\'s report before ' + s.REPORT_DEADLINE + '. — ' + app
+          text: 'Please submit today\'s report before ' + (ctx.deadlineTime || s.REPORT_DEADLINE) + '. — ' + app
         }
       };
 
@@ -172,8 +172,7 @@ function runScheduledJobs() {
   if (!s.NOTIFICATIONS_ENABLED || !workingDayInfo(today, s).working) {
     return;
   }
-  const dl = reportDeadline(today, s);
-  const deadline = new Date(dl.deadline), graceEnd = new Date(dl.graceEnd);
+  const deptMap = indexBy(Db.readAll('Departments'), 'DepartmentID');
   const employees = Db.readAll('Employees').filter(function(e) {
     return e.Status === 'Active' && bool(e.ReportRequired) && (!e.JoiningDate || e.JoiningDate <= today);
   });
@@ -183,34 +182,48 @@ function runScheduledJobs() {
       submitted[r.EmployeeID] = true;
     }
   });
-  const missing = employees.filter(function(e) {
+  const missingAll = employees.filter(function(e) {
     return !submitted[e.EmployeeID];
   });
-  const reminderAt = new Date(deadline.getTime() - s.REMINDER_MINUTES_BEFORE * 60000);
-  if (s.NOTIFY_EVENTS.REPORT_REMINDER && now >= reminderAt && now < deadline && props.getProperty('JOB_REMINDER') !== today) {
-    props.setProperty('JOB_REMINDER', today);
-    if (missing.length) {
-      Notify.dispatch('REPORT_REMINDER', {
-        employees: missing
-      });
-    }
-  }
-  if (s.NOTIFY_EVENTS.MISSING_REPORT && now >= graceEnd && props.getProperty('JOB_MISSING') !== today) {
-    props.setProperty('JOB_MISSING', today);
-    const depts = indexBy(Db.readAll('Departments'), 'DepartmentID');
-    const byManager = groupBy(missing, function(e) {
-      return e.ManagerID || (depts[e.DepartmentID] ? depts[e.DepartmentID].ManagerID : '') || 'NONE';
+  const groups = groupBy(missingAll, function(e) {
+    return deadlineTimeFor(deptMap[e.DepartmentID], s);
+  });
+  const allTimes = groupBy(employees, function(e) {
+    return deadlineTimeFor(deptMap[e.DepartmentID], s);
+  });
+  Object.keys(allTimes).forEach(function(time) {
+    const missing = groups[time] || [];
+    const dl = reportDeadline(today, s, {
+      ReportDeadline: time
     });
-    Object.keys(byManager).forEach(function(mid) {
-      if (mid !== 'NONE') {
-        Notify.dispatch('MISSING_REPORT', {
-          managerId: mid,
-          missing: byManager[mid],
-          date: today
+    const deadline = new Date(dl.deadline), graceEnd = new Date(dl.graceEnd);
+    const rKey = 'JOB_REMINDER_' + time.replace(':', ''), mKey = 'JOB_MISSING_' + time.replace(':', '');
+    const reminderAt = new Date(deadline.getTime() - s.REMINDER_MINUTES_BEFORE * 60000);
+    if (s.NOTIFY_EVENTS.REPORT_REMINDER && now >= reminderAt && now < deadline && props.getProperty(rKey) !== today) {
+      props.setProperty(rKey, today);
+      if (missing.length) {
+        Notify.dispatch('REPORT_REMINDER', {
+          employees: missing,
+          deadlineTime: time
         });
       }
-    });
-  }
+    }
+    if (s.NOTIFY_EVENTS.MISSING_REPORT && now >= graceEnd && props.getProperty(mKey) !== today) {
+      props.setProperty(mKey, today);
+      const byManager = groupBy(missing, function(e) {
+        return e.ManagerID || (deptMap[e.DepartmentID] ? deptMap[e.DepartmentID].ManagerID : '') || 'NONE';
+      });
+      Object.keys(byManager).forEach(function(mid) {
+        if (mid !== 'NONE') {
+          Notify.dispatch('MISSING_REPORT', {
+            managerId: mid,
+            missing: byManager[mid],
+            date: today
+          });
+        }
+      });
+    }
+  });
 }
 
 

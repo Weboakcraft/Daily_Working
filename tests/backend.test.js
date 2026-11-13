@@ -71,9 +71,12 @@ test('first login requires a password change before any other action', () => {
   adminPass = 'Walnut2026';
   okRes(call('getEmployees', {}, adminToken));
 });
-test('a fresh Sheet ships with the 21:15 window closed at the deadline', () => {
+test('a fresh Sheet ships with 20:00 for everyone and 23:00 for Packaging, closed at the deadline', () => {
   const st = okRes(call('getSettings', {}, adminToken)).settings;
-  eq(st.REPORT_DEADLINE, '21:15');
+  eq(st.REPORT_DEADLINE, '20:00');
+  const depts = okRes(call('getDepartments', { includeInactive: true }, adminToken));
+  eq(depts.find((d) => d.name === 'PACKAGING').reportDeadline, '23:00');
+  ok(depts.filter((d) => d.name !== 'PACKAGING').every((d) => d.reportDeadline === ''), 'other departments use the company deadline');
   eq(st.GRACE_PERIOD_MINUTES, 0);
   eq(st.LOCK_AFTER_DEADLINE, true);
   // The rest of the suite runs at whatever time of day it happens to be, so it needs an open
@@ -382,13 +385,45 @@ test('the reporting window migration runs once and does not fight the admin afte
   let st = okRes(call('getSettings', {}, adminToken)).settings;
   eq(st.REPORT_DEADLINE, '18:30', 'setup leaves an admin choice alone once the change has run');
 
+  okRes(call('saveDepartment', { department: { departmentId: 'DEPT-PACKAGING', name: 'PACKAGING', reportDeadline: '' } }, adminToken));
   b.run('applyReportingWindow');
   st = okRes(call('getSettings', {}, adminToken)).settings;
-  eq(st.REPORT_DEADLINE, '21:15');
+  eq(st.REPORT_DEADLINE, '20:00');
+  eq(okRes(call('getDepartments', {}, adminToken)).find((d) => d.name === 'PACKAGING').reportDeadline, '23:00', 'Packaging window restored');
   eq(st.GRACE_PERIOD_MINUTES, 0);
   eq(st.LOCK_AFTER_DEADLINE, true);
 
   okRes(call('saveSettings', { settings: { REPORT_DEADLINE: '19:00', GRACE_PERIOD_MINUTES: 15, LOCK_AFTER_DEADLINE: false } }, adminToken));
+  okRes(call('saveDepartment', { department: { departmentId: 'DEPT-PACKAGING', name: 'PACKAGING', reportDeadline: '' } }, adminToken));
+});
+test('a department deadline overrides the company deadline and locks only that department', () => {
+  const mins = (n) => {
+    const d = new Date(Date.now() + n * 60000);
+    const hhmm = (h) => (h < 10 ? '0' : '') + h;
+    return hhmm(d.getHours()) + ':' + hhmm(d.getMinutes());
+  };
+  const e = errRes(call('saveDepartment', { department: { departmentId: 'DEPT-STORE', name: 'STORE', reportDeadline: '25:99' } }, adminToken), 'VALIDATION');
+  ok(e.fieldErrors.reportDeadline);
+  errRes(call('saveDepartment', { department: { departmentId: 'DEPT-STORE', name: 'STORE', reportDeadline: '23:00' } }, mgrToken), 'FORBIDDEN');
+  okRes(call('saveSettings', { settings: { LOCK_AFTER_DEADLINE: true, GRACE_PERIOD_MINUTES: 0, REPORT_DEADLINE: mins(-1) } }, adminToken));
+  let st = okRes(call('getTodayReport', {}, outsiderToken));
+  eq(st.canEdit, false, 'company deadline passed');
+  okRes(call('saveDepartment', { department: { departmentId: 'DEPT-STORE', name: 'STORE', reportDeadline: mins(3) } }, adminToken));
+  st = okRes(call('getTodayReport', {}, outsiderToken));
+  eq(st.canEdit, true, 'own later deadline keeps STORE open');
+  eq(st.deadline.time, mins(3));
+  okRes(call('saveDraft', { responses: {}, tasks: [] }, outsiderToken));
+  const sales = okRes(call('getTodayReport', {}, emp2Token));
+  eq(sales.deadline.time, mins(-1), 'SALES still follows the company deadline');
+  okRes(call('saveDepartment', { department: { departmentId: 'DEPT-STORE', name: 'STORE', reportDeadline: mins(-2) } }, adminToken));
+  st = okRes(call('getTodayReport', {}, outsiderToken));
+  eq(st.canEdit, false);
+  ok(/closed at /.test(st.lockedReason) && st.lockedReason.indexOf(mins(-2)) >= 0, 'locked message names the department deadline');
+  errRes(call('saveDraft', { responses: {}, tasks: [] }, outsiderToken), 'REPORT_LOCKED');
+  const home = okRes(call('getMyDashboard', {}, outsiderToken));
+  eq(home.today.deadline.time, mins(-2), 'home screen countdown uses the department deadline');
+  okRes(call('saveDepartment', { department: { departmentId: 'DEPT-STORE', name: 'STORE', reportDeadline: '' } }, adminToken));
+  okRes(call('saveSettings', { settings: { LOCK_AFTER_DEADLINE: false, REPORT_DEADLINE: '19:00', GRACE_PERIOD_MINUTES: 15 } }, adminToken));
 });
 
 console.log('\nSecurity');
