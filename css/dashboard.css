@@ -182,3 +182,9 @@ a.sw:focus-visible { box-shadow: var(--focus); }
   letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3);
 }
 .form-section .section-title:first-child { margin-top: 0; }
+
+/* Weekly MIS */
+dl.defs { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 0; }
+dl.defs dt { font-weight: 600; } dl.defs dd { margin: 0; color: var(--ink-2); }
+details.panel > summary { list-style: none; } details.panel > summary::-webkit-details-marker { display: none; }
+details.panel:not([open]) > summary { border-bottom: 0; }

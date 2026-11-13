@@ -530,6 +530,83 @@ test('manual Sheet edits apply after refresh; setup creates a new admin when non
   okRes(call('me', {}, adminToken));
 });
 
+console.log('\nWeekly MIS');
+let miraId, miraToken, misWs;
+test('weekly MIS counts each task once and splits completed, pending and overdue', () => {
+  miraId = okRes(call('saveEmployee', { employee: { name: 'Mira Shah', departmentId: 'DEPT-STORE', role: 'EMPLOYEE', managerId: mgrId, username: 'mira', joiningDate: '2024-01-01' }, password: 'Temp12345' }, adminToken)).employeeId;
+  const t0 = login('mira', 'Temp12345');
+  okRes(call('changePassword', { currentPassword: 'Temp12345', newPassword: 'Chair2026x' }, t0));
+  miraToken = login('mira', 'Chair2026x');
+  const D = b.ctx, Db = b.ctx.__x.Db;
+  Db.resetMemo();
+  misWs = D.weekStart(D.addDays(today(), -7));
+  const mon = misWs, tue = D.addDays(misWs, 1), wed = D.addDays(misWs, 2), nextMon = D.addDays(misWs, 7);
+  const now = new Date().toISOString();
+  const rep = (id, date) => ({ ReportID: id, UniqueKey: miraId + '|' + date, EmployeeID: miraId, DepartmentID: 'DEPT-STORE', ReportDate: date, Status: 'SUBMITTED', SubmittedAt: now, FirstSubmittedAt: now, LateFlag: false, IsDemo: false, CreatedAt: now, UpdatedAt: now });
+  Db.insert('Reports', [rep('RPT-M1', mon), rep('RPT-M2', tue), rep('RPT-M3', wed)]);
+  const task = (id, rid, date, status, extra) => Object.assign({ TaskID: id, ReportID: rid, EmployeeID: miraId, DepartmentID: 'DEPT-STORE', ReportDate: date, TaskTitle: 'Task ' + id, Status: status, Priority: 'MEDIUM', Duration: 60, SourceTaskID: '', CarriedToTaskID: '', CarryCount: 0, Deleted: false, IsDemo: false, CreatedAt: now, UpdatedAt: now }, extra || {});
+  Db.insert('Tasks', [
+    task('T-A', 'RPT-M1', mon, 'COMPLETED'),
+    task('T-B1', 'RPT-M1', mon, 'IN PROGRESS', { CarriedToTaskID: 'T-B2' }),
+    task('T-B2', 'RPT-M2', tue, 'IN PROGRESS', { SourceTaskID: 'T-B1', CarryCount: 1 }),
+    task('T-C', 'RPT-M3', wed, 'PENDING'),
+    task('T-D', 'RPT-M1', mon, 'PENDING'),
+    task('T-E', 'RPT-M2', tue, 'CANCELLED'),
+    task('T-F', 'RPT-M2', tue, 'COMPLETED', { Deleted: true }),
+    task('T-G', 'RPT-M3', wed, 'IN PROGRESS', { CarriedToTaskID: 'T-G2' }),
+    task('T-G2', 'RPT-NEXT', nextMon, 'IN PROGRESS', { SourceTaskID: 'T-G', CarryCount: 1 })
+  ]);
+  const fu = (id, due, status) => ({ FollowUpID: id, ReportID: 'RPT-M1', TaskID: '', EmployeeID: miraId, DepartmentID: 'DEPT-STORE', OwnerID: miraId, Title: 'FU ' + id, Priority: 'HIGH', DueDate: due, Status: status, Source: 'MANUAL', CreatedBy: mgrId, IsDemo: false, CreatedAt: now, UpdatedAt: now });
+  Db.insert('FollowUps', [fu('FU-1', wed, 'OPEN'), fu('FU-2', tue, 'RESOLVED'), fu('FU-3', D.addDays(today(), 3), 'OPEN')]);
+  D.ocBumpCache_();
+
+  const d = okRes(call('getWeeklyMis', { week: wed }, miraToken));
+  eq(d.week.from, misWs); eq(d.week.to, D.addDays(misWs, 6)); eq(d.scope, 'single');
+  eq(d.rows.length, 1, 'an employee sees only their own MIS');
+  const r = d.rows[0];
+  eq(r.employeeId, miraId);
+  eq(r.total, 5, 'carried task counted once, cancelled and deleted left out');
+  eq(r.completed, 1); eq(r.pending, 2); eq(r.overdueTasks, 2); eq(r.cancelled, 1);
+  eq(r.overdueFollowUps, 1, 'open follow-up due inside the week'); eq(r.overdue, 3);
+  eq(r.upcoming, 0, 'a past week has nothing upcoming');
+  eq(r.completionPct, 20);
+  eq(r.days.length, 7);
+  const b2 = r.items.overdue.find((x) => x.id === 'T-B2');
+  ok(b2 && b2.since === mon && b2.carryCount === 1, 'overdue task shows when it was first started');
+  ok(r.items.overdue.some((x) => x.id === 'T-D'), 'left-open task is overdue');
+  ok(r.items.pending.some((x) => x.id === 'T-C') && r.items.pending.some((x) => x.id === 'T-G'));
+  ok(r.items.overdue.some((x) => x.kind === 'followup' && x.id === 'FU-1'));
+});
+test('weekly MIS shows upcoming follow-ups in the current week', () => {
+  const d = okRes(call('getWeeklyMis', {}, miraToken));
+  eq(d.week.current, true);
+  const r = d.rows[0];
+  eq(r.upcoming, 1);
+  ok(r.items.upcoming.some((x) => x.id === 'FU-3'));
+  eq(r.overdueFollowUps, 1);
+});
+test('weekly MIS: employees see only themselves, managers their team, admins everyone', () => {
+  errRes(call('getWeeklyMis', { week: misWs, employeeId: outsiderId }, miraToken), 'FORBIDDEN');
+  const m = okRes(call('getWeeklyMis', { week: misWs }, mgrToken));
+  eq(m.scope, 'team');
+  ok(m.rows.some((x) => x.employeeId === miraId), 'manager sees a direct report');
+  ok(!m.rows.some((x) => x.employeeId === outsiderId), 'manager does not see other teams');
+  ok(!m.rows[0].items, 'list view carries no item details');
+  errRes(call('getWeeklyMis', { week: misWs, employeeId: outsiderId }, mgrToken), 'FORBIDDEN');
+  const a = okRes(call('getWeeklyMis', { week: misWs }, adminToken));
+  eq(a.scope, 'all');
+  ok(a.rows.some((x) => x.employeeId === miraId) && a.rows.some((x) => x.employeeId === outsiderId));
+  const mira = a.rows.find((x) => x.employeeId === miraId);
+  ok(a.totals.total >= mira.total && a.totals.overdue >= mira.overdue);
+  const one = okRes(call('getWeeklyMis', { week: misWs, employeeId: miraId }, adminToken));
+  eq(one.rows.length, 1); ok(one.rows[0].items && one.rows[0].employee);
+  errRes(call('getWeeklyMis', { week: b.ctx.addDays(today(), 14) }, adminToken), 'VALIDATION');
+});
+test('weekly MIS works inside a batch', () => {
+  const out = okRes(call('batch', { calls: [{ action: 'getWeeklyMis', payload: { week: misWs } }] }, miraToken));
+  eq(out[0].ok, true); eq(out[0].data.rows[0].total, 5);
+});
+
 console.log('\nDemo data cleanup');
 test('removeDemoData removes only demo rows', () => {
   const prodReports = rows('Reports').filter((r) => r.IsDemo !== 'TRUE').length;

@@ -139,6 +139,10 @@ function getRoutes() {
       fn: apiGetMyDashboard,
       roles: ALL
     },
+    getWeeklyMis: {
+      fn: apiGetWeeklyMis,
+      roles: ALL
+    },
     getEmployeeAnalytics: {
       fn: apiGetEmployeeAnalytics,
       roles: ALL
@@ -198,6 +202,7 @@ var BATCHABLE = {
   getDashboardData: true,
   getMyDashboard: true,
   getEmployeeAnalytics: true,
+  getWeeklyMis: true,
   getDepartmentAnalytics: true,
   search: true,
   getSettings: true,
