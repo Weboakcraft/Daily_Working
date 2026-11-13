@@ -8,7 +8,7 @@
 export const CONFIG = {
   APPS_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbwMFL69rEQH6lvs6Y65hgu10BH9bYA8yBNL3W9QMKLoetLAnGyrY4akTOw6pQp1Qvj3/exec',
   /* Bumping this also makes every browser pick up the new app files on the next visit. */
-  APP_VERSION: '1.3.0',
+  APP_VERSION: '1.4.0',
   REQUEST_TIMEOUT_MS: 45000,
   /*
    * How long to wait after the last keystroke before saving the draft.

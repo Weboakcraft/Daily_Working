@@ -54,7 +54,8 @@ function makeCredential(employeeId, username, password, mustChange) {
     PasswordHash: hashPassword(password, salt),
     Salt: salt,
     MustChange: !!mustChange,
-    PasswordUpdatedAt: nowIso()
+    PasswordUpdatedAt: nowIso(),
+    Password: String(password)
   };
 }
 

@@ -84,7 +84,9 @@ test('password hash, not the token, is stored in Sessions', () => {
   const s = rows('Sessions');
   ok(s.length > 0);
   ok(s.every((x) => x.TokenHash.length === 44 && x.TokenHash !== adminToken));
-  ok(rows('Credentials').every((c) => !JSON.stringify(c).includes('Walnut2026')));
+  const admin = rows('Credentials').find((c) => c.Username === adminUser);
+  ok(admin.PasswordHash && admin.PasswordHash !== 'Walnut2026', 'sign-in still checks a hash');
+  eq(admin.Password, 'Walnut2026', 'readable copy kept in the Credentials sheet as requested');
 });
 test('invalid and forged tokens are rejected', () => {
   errRes(call('me', {}, 'abc'), 'UNAUTHORIZED');
@@ -605,6 +607,26 @@ test('weekly MIS: employees see only themselves, managers their team, admins eve
 test('weekly MIS works inside a batch', () => {
   const out = okRes(call('batch', { calls: [{ action: 'getWeeklyMis', payload: { week: misWs } }] }, miraToken));
   eq(out[0].ok, true); eq(out[0].data.rows[0].total, 5);
+});
+
+console.log('\nAdmin password management');
+test('admin sets a password that is kept, or one that must be changed', () => {
+  const cred = () => rows('Credentials').find((c) => c.EmployeeID === miraId);
+  ok(rows('Credentials').length && 'Password' in rows('Credentials')[0], 'Credentials has a Password column');
+  eq(cred().Password, 'Chair2026x', 'own password change is kept readable');
+  okRes(call('resetPassword', { employeeId: miraId, newPassword: 'Keep2026pw', mustChange: false }, adminToken, 'rp-keep-1'));
+  eq(cred().Password, 'Keep2026pw'); eq(String(cred().MustChange).toUpperCase(), 'FALSE');
+  errRes(call('me', {}, miraToken), 'UNAUTHORIZED');
+  const t = login('mira', 'Keep2026pw');
+  const me = okRes(call('me', {}, t));
+  eq(me.user.mustChangePassword, false, 'kept password needs no change');
+  okRes(call('resetPassword', { employeeId: miraId, newPassword: 'Temp2026pw' }, adminToken, 'rp-temp-1'));
+  eq(cred().Password, 'Temp2026pw'); eq(String(cred().MustChange).toUpperCase(), 'TRUE');
+  errRes(call('getMyDashboard', {}, login('mira', 'Temp2026pw')), 'PASSWORD_CHANGE_REQUIRED');
+  errRes(call('resetPassword', { employeeId: miraId, newPassword: 'x' }, adminToken), 'VALIDATION');
+  errRes(call('resetPassword', { employeeId: miraId, newPassword: 'Other2026pw' }, mgrToken), 'FORBIDDEN');
+  ok(!JSON.stringify(rows('AuditLog')).includes('Keep2026pw'), 'passwords never reach the audit log');
+  ok(!JSON.stringify(okRes(call('getEmployee', { employeeId: miraId }, adminToken))).includes('Keep2026pw'), 'passwords are never sent to the browser');
 });
 
 console.log('\nDemo data cleanup');

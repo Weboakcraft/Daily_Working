@@ -203,12 +203,14 @@ async function openEmployeeDialog(ctx, emp, depts, done) {
   };
 }
 
-function showCredentials(ctx, emp, password, title) {
-  const text = 'Oakcraft Daily Working Tracker\nSign in: ' + location.origin + location.pathname.replace(/[^/]*$/, '') + 'login.html\nUsername: ' + emp.username + '\nTemporary password: ' + password + '\nYou will be asked to choose a new password.';
+function showCredentials(ctx, emp, password, title, mustChange) {
+  const temp = mustChange !== false;
+  const label = temp ? 'Temporary password' : 'Password';
+  const text = 'Oakcraft Daily Working Tracker\nSign in: ' + location.origin + location.pathname.replace(/[^/]*$/, '') + 'login.html\nUsername: ' + emp.username + '\n' + label + ': ' + password + (temp ? '\nYou will be asked to choose a new password.' : '');
   const m = openModal({
     title,
-    body: html`<p>Share these sign-in details with ${emp.name} privately. The password is not shown again.</p>
-      <dl class="kv" style="margin:12px 0"><dt>Username</dt><dd><strong>${emp.username}</strong></dd><dt>Temporary password</dt><dd><strong>${password}</strong></dd></dl>
+    body: html`<p>Share these sign-in details with ${emp.name} privately.</p>
+      <dl class="kv" style="margin:12px 0"><dt>Username</dt><dd><strong>${emp.username}</strong></dd><dt>${label}</dt><dd><strong>${password}</strong></dd></dl>
       <div class="row">${copyButton(text, 'Copy sign-in message')}</div>`,
     footer: html`<button class="btn primary" type="button" data-close>Done</button>`
   });
@@ -218,21 +220,24 @@ function showCredentials(ctx, emp, password, title) {
 function openResetDialog(emp) {
   const m = openModal({
     title: 'Reset password for ' + emp.name,
-    body: html`<form class="stack" novalidate><p>${emp.name} will be signed out everywhere and must choose a new password at next sign-in.</p>
-      <div class="field"><label for="rp">New temporary password<span class="req">*</span></label>
+    body: html`<form class="stack" novalidate><p>${emp.name} will be signed out on every device.</p>
+      <div class="field"><label for="rp">New password<span class="req">*</span></label>
       <div class="row" style="flex-wrap:nowrap"><input class="input" id="rp" name="newPassword" value="${generatePassword()}" autocomplete="off" spellcheck="false"><button class="btn" type="button" data-gen>Generate</button></div>
-      <span class="error" data-error-for="newPassword"></span></div></form>`,
-    footer: html`<button class="btn" type="button" data-close>Cancel</button><button class="btn danger" type="button" data-save>Reset password</button>`
+      <span class="error" data-error-for="newPassword"></span></div>
+      <div class="field"><label class="switch"><input type="checkbox" name="mustChange" checked><span>Ask ${emp.name} to choose a new password at next sign-in</span></label>
+      <span class="hint">Turn this off to keep the password you set here.</span></div></form>`,
+    footer: html`<button class="btn" type="button" data-close>Cancel</button><button class="btn danger" type="button" data-save>Set password</button>`
   });
   const form = m.el.querySelector('form');
   m.el.querySelector('[data-gen]').onclick = () => { form.newPassword.value = generatePassword(); };
   const btn = m.el.querySelector('[data-save]');
   btn.onclick = async () => {
     const pw = form.newPassword.value.trim();
+    const mustChange = form.mustChange.checked;
     try {
-      await submitForm(form, btn, () => api('resetPassword', { employeeId: emp.employeeId, newPassword: pw }, { write: true }));
+      await submitForm(form, btn, () => api('resetPassword', { employeeId: emp.employeeId, newPassword: pw, mustChange }, { write: true }));
       m.close();
-      showCredentials(null, emp, pw, 'Password reset');
+      showCredentials(null, emp, pw, mustChange ? 'Password reset' : 'Password set', mustChange);
     } catch (err) { /* shown */ }
   };
 }

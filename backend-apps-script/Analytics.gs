@@ -1238,6 +1238,7 @@ function apiGetDepartmentAnalytics_(p, user) {
   };
 }
 
+
 const MIS_DEFINITIONS = {
   total: 'Tasks recorded in the week. A task continued on a later day is counted once; cancelled tasks are not counted.',
   completed: 'Tasks marked COMPLETED.',
@@ -1246,27 +1247,43 @@ const MIS_DEFINITIONS = {
   upcoming: 'Open follow-ups due in the next 7 days.'
 };
 
+
 function misWeek_(p) {
   const today = todayStr();
   const ws = weekStart(validDateOr(p.week, today));
   assert(ws <= weekStart(today), 'VALIDATION', 'Choose this week or an earlier week.');
-  return { from: ws, to: addDays(ws, 6), today: today, current: ws === weekStart(today) };
+  return {
+    from: ws,
+    to: addDays(ws, 6),
+    today: today,
+    current: ws === weekStart(today)
+  };
 }
 
-function apiGetWeeklyMis(p, user) { return ocCached_('mis', p, user, apiGetWeeklyMis_); }
+
+function apiGetWeeklyMis(p, user) {
+  return ocCached_('mis', p, user, apiGetWeeklyMis_);
+}
+
 
 function apiGetWeeklyMis_(p, user) {
   const s = getSettingsMap();
   const wk = misWeek_(p);
   const scope = getScope(user);
   const single = cleanText(p.employeeId, 40) || (user.role === 'EMPLOYEE' ? user.id : '');
-  if (single) assert(scope.canEmployee(single), 'FORBIDDEN', 'You do not have access to this employee.');
+  if (single) {
+    assert(scope.canEmployee(single), 'FORBIDDEN', 'You do not have access to this employee.');
+  }
   const depts = indexBy(Db.readAll('Departments'), 'DepartmentID');
   const allEmps = Db.readAll('Employees');
   const empMap = indexBy(allEmps, 'EmployeeID');
-  const deptName = function(id) { return depts[id] ? depts[id].DepartmentName : ''; };
+  const deptName = function(id) {
+    return depts[id] ? depts[id].DepartmentName : '';
+  };
   const inScope = function(e) {
-    if (single) return e.EmployeeID === single;
+    if (single) {
+      return e.EmployeeID === single;
+    }
     return scope.canEmployee(e.EmployeeID) && (!p.departmentId || e.DepartmentID === p.departmentId);
   };
   const candidates = allEmps.filter(inScope);
@@ -1276,95 +1293,224 @@ function apiGetWeeklyMis_(p, user) {
     return candIds[t.EmployeeID] && !bool(t.Deleted);
   });
   const byId = indexBy(rangeTasks, 'TaskID');
-  const weekTasks = rangeTasks.filter(function(t) { return t.ReportDate >= wk.from; });
+  const weekTasks = rangeTasks.filter(function(t) {
+    return t.ReportDate >= wk.from;
+  });
   const inWeek = indexBy(weekTasks, 'TaskID');
-  const reports = Db.rangeBy('Reports', 'ReportDate', wk.from, wk.to).filter(function(r) { return candIds[r.EmployeeID]; });
-  const followUps = Db.readAll('FollowUps').filter(function(f) { return candIds[f.OwnerID]; });
-  const isOpenFu = function(f) { return f.Status === 'OPEN' || f.Status === 'IN PROGRESS'; };
+  const reports = Db.rangeBy('Reports', 'ReportDate', wk.from, wk.to).filter(function(r) {
+    return candIds[r.EmployeeID];
+  });
+  const followUps = Db.readAll('FollowUps').filter(function(f) {
+    return candIds[f.OwnerID];
+  });
+  const isOpenFu = function(f) {
+    return f.Status === 'OPEN' || f.Status === 'IN PROGRESS';
+  };
   const upcomingTo = addDays(wk.today, 7);
-  const tasksBy = groupBy(weekTasks, function(t) { return t.EmployeeID; });
-  const reportsBy = groupBy(reports, function(r) { return r.EmployeeID; });
-  const fuBy = groupBy(followUps, function(f) { return f.OwnerID; });
+  const tasksBy = groupBy(weekTasks, function(t) {
+    return t.EmployeeID;
+  });
+  const reportsBy = groupBy(reports, function(r) {
+    return r.EmployeeID;
+  });
+  const fuBy = groupBy(followUps, function(f) {
+    return f.OwnerID;
+  });
   const origin = function(t) {
     let cur = t, guard = 0;
-    while (cur.SourceTaskID && byId[cur.SourceTaskID] && guard++ < 60) cur = byId[cur.SourceTaskID];
+    while (cur.SourceTaskID && byId[cur.SourceTaskID] && guard++ < 60) {
+      cur = byId[cur.SourceTaskID];
+    }
     return cur.ReportDate;
   };
   const taskItem = function(t, kind) {
     return {
-      kind: 'task', id: t.TaskID, reportId: t.ReportID, title: t.TaskTitle, date: t.ReportDate, status: t.Status,
-      priority: t.Priority || 'MEDIUM', carryCount: num(t.CarryCount), since: single ? origin(t) : t.ReportDate, bucket: kind
+      kind: 'task',
+      id: t.TaskID,
+      reportId: t.ReportID,
+      title: t.TaskTitle,
+      date: t.ReportDate,
+      status: t.Status,
+      priority: t.Priority || 'MEDIUM',
+      carryCount: num(t.CarryCount),
+      since: single ? origin(t) : t.ReportDate,
+      bucket: kind
     };
   };
   const fuItem = function(f, kind) {
-    return { kind: 'followup', id: f.FollowUpID, reportId: f.ReportID, title: f.Title, date: f.DueDate, status: f.Status, priority: f.Priority || 'MEDIUM', bucket: kind };
+    return {
+      kind: 'followup',
+      id: f.FollowUpID,
+      reportId: f.ReportID,
+      title: f.Title,
+      date: f.DueDate,
+      status: f.Status,
+      priority: f.Priority || 'MEDIUM',
+      bucket: kind
+    };
   };
-
   const rows = [];
   candidates.forEach(function(e) {
     const tasks = tasksBy[e.EmployeeID] || [];
     const reps = reportsBy[e.EmployeeID] || [];
     const fus = fuBy[e.EmployeeID] || [];
     const active = e.Status === 'Active';
-    if (!single && !tasks.length && !reps.length && !(active && bool(e.ReportRequired)) && !fus.some(isOpenFu)) return;
-    const lastDay = reps.concat(tasks).reduce(function(m, x) { return x.ReportDate > m ? x.ReportDate : m; }, '');
-    const latest = tasks.filter(function(t) { return !(t.CarriedToTaskID && inWeek[t.CarriedToTaskID]); });
-    const c = { total: 0, completed: 0, pending: 0, overdueTasks: 0, blocked: 0, cancelled: 0, carried: 0 };
-    const items = { completed: [], pending: [], overdue: [], upcoming: [] };
-    latest.forEach(function(t) {
-      if (t.Status === 'CANCELLED') { c.cancelled++; return; }
-      c.total++;
-      if (num(t.CarryCount) >= 1) c.carried++;
-      if (t.Status === 'BLOCKED') c.blocked++;
-      if (t.Status === 'COMPLETED') { c.completed++; items.completed.push(taskItem(t, 'completed')); return; }
-      if (num(t.CarryCount) >= 1 || t.ReportDate < lastDay) { c.overdueTasks++; items.overdue.push(taskItem(t, 'overdue')); }
-      else { c.pending++; items.pending.push(taskItem(t, 'pending')); }
+    if (!single && !tasks.length && !reps.length && !(active && bool(e.ReportRequired)) && !fus.some(isOpenFu)) {
+      return;
+    }
+    const lastDay = reps.concat(tasks).reduce(function(m, x) {
+      return x.ReportDate > m ? x.ReportDate : m;
+    }, '');
+    const latest = tasks.filter(function(t) {
+      return !(t.CarriedToTaskID && inWeek[t.CarriedToTaskID]);
     });
-    const overdueFu = fus.filter(function(f) { return isOpenFu(f) && f.DueDate && f.DueDate < wk.today && f.DueDate <= wk.to; });
-    const upcomingFu = wk.current ? fus.filter(function(f) { return isOpenFu(f) && f.DueDate && f.DueDate >= wk.today && f.DueDate <= upcomingTo; }) : [];
-    overdueFu.forEach(function(f) { items.overdue.push(fuItem(f, 'overdue')); });
-    upcomingFu.forEach(function(f) { items.upcoming.push(fuItem(f, 'upcoming')); });
+    const c = {
+      total: 0,
+      completed: 0,
+      pending: 0,
+      overdueTasks: 0,
+      blocked: 0,
+      cancelled: 0,
+      carried: 0
+    };
+    const items = {
+      completed: [],
+      pending: [],
+      overdue: [],
+      upcoming: []
+    };
+    latest.forEach(function(t) {
+      if (t.Status === 'CANCELLED') {
+        c.cancelled++;
+        return;
+      }
+      c.total++;
+      if (num(t.CarryCount) >= 1) {
+        c.carried++;
+      }
+      if (t.Status === 'BLOCKED') {
+        c.blocked++;
+      }
+      if (t.Status === 'COMPLETED') {
+        c.completed++;
+        items.completed.push(taskItem(t, 'completed'));
+        return;
+      }
+      if (num(t.CarryCount) >= 1 || t.ReportDate < lastDay) {
+        c.overdueTasks++;
+        items.overdue.push(taskItem(t, 'overdue'));
+      } else {
+        c.pending++;
+        items.pending.push(taskItem(t, 'pending'));
+      }
+    });
+    const overdueFu = fus.filter(function(f) {
+      return isOpenFu(f) && f.DueDate && f.DueDate < wk.today && f.DueDate <= wk.to;
+    });
+    const upcomingFu = wk.current ? fus.filter(function(f) {
+      return isOpenFu(f) && f.DueDate && f.DueDate >= wk.today && f.DueDate <= upcomingTo;
+    }) : [];
+    overdueFu.forEach(function(f) {
+      items.overdue.push(fuItem(f, 'overdue'));
+    });
+    upcomingFu.forEach(function(f) {
+      items.upcoming.push(fuItem(f, 'upcoming'));
+    });
     const rmap = {};
-    reps.forEach(function(r) { rmap[reportKey(r.EmployeeID, r.ReportDate)] = r; });
-    const roll = rollup(expectedPairs(wk.from, wk.to, [e], s), rmap);
-    const minutes = sum(tasks.filter(function(t) { return t.Status !== 'CANCELLED'; }), function(t) { return t.Duration; });
+    reps.forEach(function(r) {
+      rmap[reportKey(r.EmployeeID, r.ReportDate)] = r;
+    });
+    const roll = rollup(expectedPairs(wk.from, wk.to, [ e ], s), rmap);
+    const minutes = sum(tasks.filter(function(t) {
+      return t.Status !== 'CANCELLED';
+    }), function(t) {
+      return t.Duration;
+    });
     const row = {
-      employeeId: e.EmployeeID, name: e.EmployeeName, designation: e.Designation || '', role: e.Role,
-      departmentId: e.DepartmentID, department: deptName(e.DepartmentID), status: e.Status,
-      total: c.total, completed: c.completed, pending: c.pending, overdueTasks: c.overdueTasks,
-      overdueFollowUps: overdueFu.length, overdue: c.overdueTasks + overdueFu.length, upcoming: upcomingFu.length,
-      blocked: c.blocked, carried: c.carried, cancelled: c.cancelled, completionPct: pct(c.completed, c.total),
-      workHours: round(minutes / 60, 1), reportsExpected: roll.expected, reportsSubmitted: roll.submitted, late: roll.late
+      employeeId: e.EmployeeID,
+      name: e.EmployeeName,
+      designation: e.Designation || '',
+      role: e.Role,
+      departmentId: e.DepartmentID,
+      department: deptName(e.DepartmentID),
+      status: e.Status,
+      total: c.total,
+      completed: c.completed,
+      pending: c.pending,
+      overdueTasks: c.overdueTasks,
+      overdueFollowUps: overdueFu.length,
+      overdue: c.overdueTasks + overdueFu.length,
+      upcoming: upcomingFu.length,
+      blocked: c.blocked,
+      carried: c.carried,
+      cancelled: c.cancelled,
+      completionPct: pct(c.completed, c.total),
+      workHours: round(minutes / 60, 1),
+      reportsExpected: roll.expected,
+      reportsSubmitted: roll.submitted,
+      late: roll.late
     };
     if (single) {
-      const byDate = groupBy(tasks, function(t) { return t.ReportDate; });
+      const byDate = groupBy(tasks, function(t) {
+        return t.ReportDate;
+      });
       row.days = dateRange(wk.from, wk.to).map(function(d) {
         const r = rmap[reportKey(e.EmployeeID, d)];
-        const dayTasks = (byDate[d] || []).filter(function(t) { return t.Status !== 'CANCELLED'; });
+        const dayTasks = (byDate[d] || []).filter(function(t) {
+          return t.Status !== 'CANCELLED';
+        });
         const working = workingDayInfo(d, s).working;
         return {
-          date: d, working: working,
-          status: r ? r.Status : (d > wk.today ? 'UPCOMING' : (working ? REPORT_STATUS.NOT_STARTED : 'OFF')),
-          reportId: r ? r.ReportID : '', tasks: dayTasks.length,
-          completed: dayTasks.filter(function(t) { return t.Status === 'COMPLETED'; }).length
+          date: d,
+          working: working,
+          status: r ? r.Status : d > wk.today ? 'UPCOMING' : working ? REPORT_STATUS.NOT_STARTED : 'OFF',
+          reportId: r ? r.ReportID : '',
+          tasks: dayTasks.length,
+          completed: dayTasks.filter(function(t) {
+            return t.Status === 'COMPLETED';
+          }).length
         };
       });
-      const byPrio = { URGENT: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
-      const order = function(a, b) { return (byPrio[a.priority] - byPrio[b.priority]) || (a.date < b.date ? -1 : (a.date > b.date ? 1 : 0)); };
-      Object.keys(items).forEach(function(k) { items[k].sort(order); });
+      const byPrio = {
+        URGENT: 0,
+        HIGH: 1,
+        MEDIUM: 2,
+        LOW: 3
+      };
+      const order = function(a, b) {
+        return byPrio[a.priority] - byPrio[b.priority] || (a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+      };
+      Object.keys(items).forEach(function(k) {
+        items[k].sort(order);
+      });
       row.items = items;
       row.employee = publicEmployee(e, depts, empMap);
     }
     rows.push(row);
   });
-  rows.sort(function(a, b) { return a.department.localeCompare(b.department) || a.name.localeCompare(b.name); });
+  rows.sort(function(a, b) {
+    return a.department.localeCompare(b.department) || a.name.localeCompare(b.name);
+  });
   const keys = [ 'total', 'completed', 'pending', 'overdueTasks', 'overdueFollowUps', 'overdue', 'upcoming', 'blocked', 'carried', 'cancelled', 'workHours', 'reportsExpected', 'reportsSubmitted', 'late' ];
-  const totals = { people: rows.length };
-  keys.forEach(function(k) { totals[k] = round(sum(rows, function(r) { return r[k]; }), 1); });
+  const totals = {
+    people: rows.length
+  };
+  keys.forEach(function(k) {
+    totals[k] = round(sum(rows, function(r) {
+      return r[k];
+    }), 1);
+  });
   totals.completionPct = pct(totals.completed, totals.total);
   return {
-    week: { from: wk.from, to: wk.to, current: wk.current, today: wk.today },
-    scope: single ? 'single' : (scope.all ? 'all' : 'team'),
-    rows: rows, totals: totals, definitions: MIS_DEFINITIONS
+    week: {
+      from: wk.from,
+      to: wk.to,
+      current: wk.current,
+      today: wk.today
+    },
+    scope: single ? 'single' : scope.all ? 'all' : 'team',
+    rows: rows,
+    totals: totals,
+    definitions: MIS_DEFINITIONS
   };
 }

@@ -1,12 +1,12 @@
 const APP = {
   NAME: 'Oakcraft Daily Working Tracker',
-  VERSION: '1.3.0'
+  VERSION: '1.4.0'
 };
 
 
 const SHEETS = {
   Employees: [ 'EmployeeID', 'EmployeeName', 'DepartmentID', 'Designation', 'Role', 'ManagerID', 'Email', 'Mobile', 'JoiningDate', 'EmploymentStatus', 'Username', 'Status', 'ReportRequired', 'IsDemo', 'CreatedAt', 'UpdatedAt' ],
-  Credentials: [ 'EmployeeID', 'Username', 'PasswordHash', 'Salt', 'MustChange', 'PasswordUpdatedAt' ],
+  Credentials: [ 'EmployeeID', 'Username', 'PasswordHash', 'Salt', 'MustChange', 'PasswordUpdatedAt', 'Password' ],
   Sessions: [ 'SessionID', 'TokenHash', 'EmployeeID', 'CreatedAt', 'ExpiresAt', 'Revoked', 'UserAgent' ],
   Departments: [ 'DepartmentID', 'DepartmentName', 'ManagerID', 'Status', 'Description', 'CreatedAt', 'UpdatedAt' ],
   Questions: [ 'QuestionID', 'DepartmentID', 'QuestionKey', 'Section', 'QuestionText', 'QuestionType', 'Required', 'Options', 'DisplayOrder', 'Validation', 'HelpText', 'DefaultValue', 'ShowIf', 'Status', 'CreatedAt', 'UpdatedAt' ],
