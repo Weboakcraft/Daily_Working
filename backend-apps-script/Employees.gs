@@ -465,6 +465,7 @@ function apiGetDepartments_(p, user) {
       managerName: empMap[d.ManagerID] ? empMap[d.ManagerID].EmployeeName : '',
       status: d.Status,
       description: d.Description,
+      reportDeadline: isDeadlineTime(d.ReportDeadline) ? String(d.ReportDeadline) : '',
       employeeCount: members.length,
       createdAt: d.CreatedAt,
       updatedAt: d.UpdatedAt
@@ -480,9 +481,13 @@ function apiSaveDepartment(p, user) {
   const name = cleanText(input.name, 60).toUpperCase();
   const managerId = cleanText(input.managerId, 40);
   const status = input.status === 'Inactive' ? 'Inactive' : 'Active';
+  const deadline = cleanText(input.reportDeadline, 5);
   const errors = {};
   if (!name) {
     errors.name = 'Department name is required.';
+  }
+  if (deadline && !isDeadlineTime(deadline)) {
+    errors.reportDeadline = 'Use a time like 23:00, or leave it empty.';
   }
   if (managerId) {
     const m = Db.readAll('Employees').filter(function(e) {
@@ -528,6 +533,7 @@ function apiSaveDepartment(p, user) {
         ManagerID: managerId,
         Status: status,
         Description: cleanText(input.description, 300),
+        ReportDeadline: deadline,
         UpdatedAt: now
       });
       Db.update('Departments', [ existing ]);
@@ -549,6 +555,7 @@ function apiSaveDepartment(p, user) {
       ManagerID: managerId,
       Status: status,
       Description: cleanText(input.description, 300),
+      ReportDeadline: deadline,
       CreatedAt: now,
       UpdatedAt: now
     };

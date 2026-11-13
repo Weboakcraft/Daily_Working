@@ -94,8 +94,9 @@ function editability(report, date, s, dept, at) {
       reason: 'This report has already been submitted.'
     };
   }
-  if (s.LOCK_AFTER_DEADLINE && (!report || report.Status !== REPORT_STATUS.REOPENED) && (at || new Date) > new Date(reportDeadline(date, s).graceEnd)) {
-    const closed = 'Reporting for ' + humanDate(date) + ' closed at ' + s.REPORT_DEADLINE + (num(s.GRACE_PERIOD_MINUTES) ? ' plus ' + s.GRACE_PERIOD_MINUTES + ' minutes' : '') + '. Ask the admin to reopen it.';
+  const dl = reportDeadline(date, s, dept);
+  if (s.LOCK_AFTER_DEADLINE && (!report || report.Status !== REPORT_STATUS.REOPENED) && (at || new Date) > new Date(dl.graceEnd)) {
+    const closed = 'Reporting for ' + humanDate(date) + ' closed at ' + dl.time + (num(s.GRACE_PERIOD_MINUTES) ? ' plus ' + s.GRACE_PERIOD_MINUTES + ' minutes' : '') + '. Ask the admin to reopen it.';
     return {
       canEdit: false,
       reason: closed
@@ -208,7 +209,7 @@ function apiGetTodayReport(p, user) {
     responses: responses,
     tasks: tasks,
     carryForward: s.CARRY_FORWARD_ENABLED ? carryForwardTasks(emp.EmployeeID, date, tasks) : [],
-    deadline: reportDeadline(date, s),
+    deadline: reportDeadline(date, s, dept),
     workingDay: workingDayInfo(date, s),
     canEdit: ed.canEdit,
     lockedReason: ed.reason,
@@ -508,7 +509,7 @@ function saveReportInternal(user, p, submit) {
   report.UpdatedAt = now;
   let followUps = [];
   if (submit) {
-    const late = arrivedAt > new Date(reportDeadline(date, s).graceEnd);
+    const late = arrivedAt > new Date(reportDeadline(date, s, dept).graceEnd);
     if (!report.FirstSubmittedAt) {
       report.FirstSubmittedAt = now;
       report.LateFlag = late;
@@ -773,7 +774,7 @@ function apiGetReport(p, user) {
     remarks: remarks,
     followUps: followUps,
     history: history,
-    deadline: reportDeadline(r.ReportDate, s),
+    deadline: reportDeadline(r.ReportDate, s, dept || r.DepartmentID),
     permissions: {
       canReview: isManagerOrAdmin(user) && r.EmployeeID !== user.id,
       canReopen: user.role === 'ADMIN' && isSubmittedStatus(r.Status),

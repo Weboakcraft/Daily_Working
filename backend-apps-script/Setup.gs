@@ -90,6 +90,17 @@ function settingMigrations() {
       GRACE_PERIOD_MINUTES: 0,
       LOCK_AFTER_DEADLINE: true
     }
+  }, {
+    id: '2026-11-report-window-2000-packaging-2300',
+    note: 'Reports close at 20:00 for everyone, 23:00 for Packaging, no grace period',
+    values: {
+      REPORT_DEADLINE: '20:00',
+      GRACE_PERIOD_MINUTES: 0,
+      LOCK_AFTER_DEADLINE: true
+    },
+    departments: {
+      PACKAGING: '23:00'
+    }
   } ];
 }
 
@@ -129,6 +140,21 @@ function applySettingMigrations(log) {
         });
       }
     });
+    if (m.departments) {
+      const dUpd = [];
+      Db.readAll('Departments').forEach(function(d) {
+        const t = m.departments[String(d.DepartmentName || '').toUpperCase()];
+        if (t && String(d.ReportDeadline) !== t) {
+          d.ReportDeadline = t;
+          d.UpdatedAt = now;
+          dUpd.push(d);
+        }
+      });
+      if (dUpd.length) {
+        Db.update('Departments', dUpd);
+        Db.invalidate('Departments');
+      }
+    }
     done.push(m.id);
     ran++;
     log.push('Applied setting change: ' + m.note);
@@ -156,7 +182,7 @@ function applyReportingWindow() {
     const props = PropertiesService.getScriptProperties();
     const done = parseJson(props.getProperty('SETTING_MIGRATIONS'), []) || [];
     props.setProperty('SETTING_MIGRATIONS', JSON.stringify(done.filter(function(id) {
-      return id !== '2026-09-report-window-2115';
+      return id !== '2026-09-report-window-2115' && id !== '2026-11-report-window-2000-packaging-2300';
     })));
     Db.resetMemo();
     SETTINGS_MEMO = null;
@@ -167,7 +193,12 @@ function applyReportingWindow() {
   } finally {
     lock.releaseLock();
   }
-  const msg = 'Reports are now accepted until ' + s.REPORT_DEADLINE + (num(s.GRACE_PERIOD_MINUTES) ? ' plus ' + s.GRACE_PERIOD_MINUTES + ' minutes of grace' : ' with no grace period') + '. After that the form is closed' + (s.LOCK_AFTER_DEADLINE ? ' and only an admin reopen can accept a report.' : '.');
+  const own = Db.readAll('Departments').filter(function(d) {
+    return isDeadlineTime(d.ReportDeadline);
+  }).map(function(d) {
+    return d.DepartmentName + ' until ' + d.ReportDeadline;
+  });
+  const msg = 'Reports are now accepted until ' + s.REPORT_DEADLINE + (own.length ? ' (' + own.join(', ') + ')' : '') + (num(s.GRACE_PERIOD_MINUTES) ? ' plus ' + s.GRACE_PERIOD_MINUTES + ' minutes of grace' : ' with no grace period') + '. After that the form is closed' + (s.LOCK_AFTER_DEADLINE ? ' and only an admin reopen can accept a report.' : '.');
   Logger.log(msg);
   try {
     SpreadsheetApp.getUi().alert(msg);
@@ -261,6 +292,7 @@ function setupOakcraftSystem() {
           ManagerID: '',
           Status: 'Active',
           Description: '',
+          ReportDeadline: n === 'PACKAGING' ? '23:00' : '',
           CreatedAt: now,
           UpdatedAt: now
         };

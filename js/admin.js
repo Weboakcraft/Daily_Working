@@ -39,7 +39,7 @@ export async function renderSettings(ctx) {
           ${field({ name: 'BRAND_ACCENT', label: 'Accent colour', type: 'color', value: s.BRAND_ACCENT, hint: 'Focus rings and carried-forward marks.' })}`)}
         ${section('window', 'Reporting window', 'When reports are due and how late submissions are handled.', html`
           ${field({ name: 'TIMEZONE', label: 'Timezone', type: 'select', value: s.TIMEZONE, options: (TIMEZONES.indexOf(s.TIMEZONE) < 0 ? [s.TIMEZONE] : []).concat(TIMEZONES).map((t) => ({ value: t, label: t })) })}
-          ${field({ name: 'REPORT_DEADLINE', label: 'Daily report deadline', type: 'time', required: true, value: s.REPORT_DEADLINE })}
+          ${field({ name: 'REPORT_DEADLINE', label: 'Daily report deadline (company)', type: 'time', required: true, value: s.REPORT_DEADLINE, hint: 'Used by every department that has no deadline of its own. Set a department\'s own deadline under Departments.' })}
           ${field({ name: 'GRACE_PERIOD_MINUTES', label: 'Grace period (minutes)', type: 'number', min: 0, max: 600, value: s.GRACE_PERIOD_MINUTES, hint: 'Reports submitted after deadline plus grace are marked late.' })}
           ${field({ name: 'BACKDATE_DAYS_ALLOWED', label: 'Days back an employee can still report', type: 'number', min: 0, max: 7, value: s.BACKDATE_DAYS_ALLOWED, hint: '0 means today only.' })}
           ${field({ name: 'OFFICE_START_TIME', label: 'Office starts', type: 'time', value: s.OFFICE_START_TIME })}
